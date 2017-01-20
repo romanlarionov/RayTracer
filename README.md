@@ -2,4 +2,6 @@
 Ray Tracer
 ==========
 
-Really simple ray tracer that I implimented in a weekend :)
+Simple path tracer written in a single file with no additional links or dependencies.
+
+![alt text](/image.ppm)
