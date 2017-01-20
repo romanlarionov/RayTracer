@@ -8,6 +8,8 @@
 
 using namespace std;
 
+///////////////////////////////////////////////////////////////////////////////////////////////////////////// Linear Algebra
+
 class vec3
 {
 public:
@@ -15,13 +17,20 @@ public:
 	{
 		memset(_v, 0, sizeof(double) * 3);
 	}
+
+	vec3(double val)
+	{
+		_v[0] = val;
+		_v[1] = val;
+		_v[2] = val;
+	}
+
 	vec3(double x, double y, double z)
 	{
 		_v[0] = x;
 		_v[1] = y;
 		_v[2] = z;
 	}
-	~vec3() {}
 
 	inline double x() const { return _v[0]; }
 	inline double y() const { return _v[1]; }
@@ -32,6 +41,7 @@ public:
 
 	inline vec3 operator+(const vec3 &o) const { return vec3(_v[0] + o[0], _v[1] + o[1], _v[2] + o[2]); } 
 	inline vec3 operator-(const vec3 &o) const { return vec3(_v[0] - o[0], _v[1] - o[1], _v[2] - o[2]); } 
+	inline vec3 operator*(const vec3 &o) const { return vec3(_v[0] * o[0], _v[1] * o[1], _v[2] * o[2]); } 
 	inline vec3 operator+(double s) const { return vec3(s + _v[0], s + _v[1], s + _v[2]); } 
 	inline vec3 operator-(double s) const { return vec3(s - _v[0], s - _v[1], s - _v[2]); } 
 	inline vec3 operator*(double s) const { return vec3(s * _v[0], s * _v[1], s * _v[2]); } 
@@ -115,7 +125,6 @@ class Ray
 public:
 	Ray() {}
 	Ray(const vec3 &origin, const vec3 &direction) { A = origin; B = direction; }
-	~Ray() {}
 
 	vec3 origin() const { return A; }
 	vec3 direction() const { return B; }
@@ -126,16 +135,102 @@ private:
 	vec3 B;
 };
 
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////// Helper Functions
+
+// all assume unit normals
+inline vec3 normalToTextureSpace(vec3 v)
+{
+	return 0.5 * (1.0 + v);
+}
+
+inline vec3 normalToWorldSpace(vec3 v)
+{
+	return 2.0 * v - 1.0;
+}
+
+inline vec3 lerp(const vec3 &v, const vec3 &o, double t)
+{
+	return (1.0 - t) * v + t * o;
+}
+
+inline vec3 reflect(const vec3 &v, const vec3 &n)
+{
+	return v - 2.0 * dot(v, n) * n;
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////// Materials
+
+class Material;
+
 struct HitRecord
 {
 	double t;
-	vec3 p;
-	vec3 n;
+	vec3 position;
+	vec3 normal;
+	Material *material;
 };
+
+class Material
+{
+public:
+	virtual ~Material() {}
+	// determines how an incoming light ray interacts with a surface by affecting the scattered outgoing ray.
+	virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered) = 0;
+};
+
+class Lambertian : public Material
+{
+public:
+	Lambertian(const vec3 &albedo) : _albedo(albedo) {}
+	virtual ~Lambertian() {}
+
+	virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered)
+	{
+		vec3 target = hit_record.position + hit_record.normal + randomVecInUnitSphere();
+		scattered = Ray(hit_record.position, target - hit_record.position);
+		attenuation = _albedo;
+		return true;
+	}
+
+private:
+	vec3 _albedo;
+
+	vec3 randomVecInUnitSphere()
+	{
+		vec3 vec;
+		do
+		{
+			vec = 2.0 * vec3(drand48(), drand48(), drand48()) - 1.0;
+		} while (vec.squaredMag() >= 1.0); // equation for sphere. tests if point is inside sphere volume.
+
+		return vec;
+	}
+};
+
+class Metallic : public Material
+{
+public:
+	Metallic(const vec3 &albedo) : _albedo(albedo) {}
+	virtual ~Metallic() {}
+
+	virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered)
+	{
+		vec3 reflected = reflect(createUnitVector(incident.direction()), hit_record.normal);
+		scattered = Ray(hit_record.position, reflected);
+		attenuation = _albedo;
+		return (dot(scattered.direction(), hit_record.normal) > 0.0); // can't reflect underneath surface
+	}
+
+private:
+	vec3 _albedo;
+};
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////// Scene & Entities In Scene
 
 class Entity
 {
 public:
+	virtual ~Entity() {}
 	virtual bool hit(const Ray &ray, double tmin, double tmax, HitRecord &hit_record) const = 0;
 };
 
@@ -143,13 +238,18 @@ class Sphere : public Entity
 {
 public:
 	Sphere() {}
-	Sphere(vec3 center, double radius) :
+	
+	Sphere(vec3 center, double radius, Material *material) :
 		_center(center),
-		_radius(radius)
+		_radius(radius),
+		_material(material)
 	{
 	}
 
-	~Sphere() {}
+	virtual ~Sphere()
+	{
+		delete _material;
+	}
 
 	// geometric equation for sphere: (x - cx)^2 + (y - cy)^2 + (z - cz)^2 = R^2
 	// vector form: dot(origin + t*direction - sphere_center, origin + t*direction - sphere_center) = R^2
@@ -170,8 +270,9 @@ public:
 			if (temp < tmax && temp > tmin)
 			{
 				hit_record.t = temp;
-				hit_record.p = ray.pointAtParameter(hit_record.t);
-				hit_record.n = (hit_record.p - _center) / _radius;
+				hit_record.position = ray.pointAtParameter(hit_record.t);
+				hit_record.normal = (hit_record.position - _center) / _radius;
+				hit_record.material = _material;
 				return true;
 			}
 
@@ -179,8 +280,9 @@ public:
 			if (temp < tmax && temp > tmin)
 			{
 				hit_record.t = temp;
-				hit_record.p = ray.pointAtParameter(hit_record.t);
-				hit_record.n = (hit_record.p - _center) / _radius;
+				hit_record.position = ray.pointAtParameter(hit_record.t);
+				hit_record.normal = (hit_record.position - _center) / _radius;
+				hit_record.material = _material;
 				return true;
 			}
 		}
@@ -191,6 +293,7 @@ public:
 private:
 	vec3 _center;
 	double _radius;
+	Material *_material;
 };
 
 class Scene
@@ -199,7 +302,6 @@ public:
 	vector<Entity *> entities;
 
 	Scene() {}
-	~Scene() {}
 
 	bool hit(const Ray &ray, double tmin, double tmax, HitRecord &hit_record) const
 	{
@@ -220,16 +322,19 @@ public:
 	}
 };
 
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////// Camera
+
 class Camera
 {
 public:
 	Camera()
 	{
-    	_origin = vec3(0.0, 0.0, 0.0);
+    	_origin = vec3(0.0);
 		_lower_left_corner = vec3(-2.0, -1.0, -1.0);
 		_vertical = vec3(0.0, 2.0, 0.0);
 		_horizontal = vec3(4.0, 0.0, 0.0);
 	}
+
 	Camera(vec3 origin, vec3 lower_left_corner, vec3 vertical, vec3 horizontal)
 	{
     	_origin = origin;
@@ -237,8 +342,6 @@ public:
 		_vertical = vertical;
 		_horizontal = horizontal;
 	}
-
-	~Camera() {}
 
 	Ray getRay(double u, double v) const
 	{
@@ -252,107 +355,93 @@ private:
 	vec3 _horizontal;
 };
 
-// both assume unit normal
-inline vec3 normalToTextureSpace(vec3 v)
-{
-	return 0.5 * (1.0 + v);
-}
-
-inline vec3 normalToWorldSpace(vec3 v)
-{
-	return 2.0 * v - 1.0;
-}
-
-inline vec3 lerp(const vec3 &v, const vec3 &o, double t)
-{
-	return (1.0 - t) * v + t * o;
-}
-
-vec3 randomVecInUnitSphere()
-{
-	vec3 vec;
-	do
-	{
-		vec = 2.0 * vec3(drand48(), drand48(), drand48()) - 1.0;
-	} while (vec.squaredMag() >= 1.0); // equation for sphere. tests if point is inside sphere volume.
-
-	return vec;
-}
-
-vec3 color(const Ray &r, Scene *scene)
+// recursively compute the color of a pixel given a starting ray
+vec3 color(const Ray &r, Scene *scene, int depth)
 {
 	HitRecord hit_record;
 	if (scene->hit(r, 0.001, numeric_limits<double>::max(), hit_record))
 	{
-		vec3 random_sample = hit_record.p + hit_record.n + randomVecInUnitSphere();
-		return 0.5 * color(Ray(hit_record.p, random_sample - hit_record.p), scene);
+		Ray scattered;
+		vec3 attenuation;
+
+		// limit the call stack. only proceed when successfully scattered.
+		if (depth < 50 && hit_record.material->scatter(r, hit_record, attenuation, scattered))
+			return attenuation * color(scattered, scene, depth + 1);
+		else
+			return vec3(0.0);
 	}
 	else
 	{
+		// color the backdrop (arbitrary)
 		vec3 dir = createUnitVector(r.direction());
 		double t = 0.5 * (dir.y() + 1.0);
-		return lerp(vec3(1.0, 1.0, 1.0), vec3(0.5, 0.7, 1.0), t);
+		return lerp(vec3(1.0), vec3(0.5, 0.7, 1.0), t);
 	}
 }
 
-int main()
+int main(int argc, char **argv)
 {
 	// settings
 	bool use_antialiasing = true;
 	bool use_gamma_correction = true;
-	int nx = 800;
-	int ny = 400;
-	int ns = 100;
+	int width = 400;
+	int height = 200;
+	int numsamples = 100;
 
 	// output to ppm file format
 	ofstream image_file("image.ppm");
-	image_file << "P3\n" << nx << " " << ny << "\n255\n";
+	image_file << "P3\n" << width << " " << height << "\n255\n";
 
-	// setup objects and scene
-    Sphere *sphere = new Sphere(vec3(0.0, 0.0, -1.0), 0.5);
-    Sphere *sphere2 = new Sphere(vec3(0.0, -100.5, -1.0), 100);
+	// setup entities and scene
+    Sphere *sphere = new Sphere(vec3(1.0, 0.0, -1.0), 0.5, new Lambertian(vec3(0.8, 0.3, 0.3)));
+    Sphere *sphere2 = new Sphere(vec3(0.0, -100.5, -1.0), 100, new Lambertian(vec3(0.8, 0.8, 0.0)));
+    Sphere *sphere3 = new Sphere(vec3(-1.0, 0.0, -1.0), 0.5, new Metallic(vec3(0.8, 0.8, 0.8)));
 
 	Scene *scene = new Scene();
 	scene->entities.push_back(sphere);
 	scene->entities.push_back(sphere2);
+	scene->entities.push_back(sphere3);
 
 	Camera camera;
 
-	// main loop	
-	for (int j = ny - 1; j >= 0; --j)
+	// loop over frame and compute color of each pixel
+	for (int j = height - 1; j >= 0; --j)
+	for (int i = 0; i < width; ++i)
 	{
-		for (int i = 0; i < nx; ++i)
+		vec3 col(0.0);
+
+		if (use_antialiasing)
 		{
-			vec3 col(0.0, 0.0, 0.0);
-
-			if (use_antialiasing)
+			for (int s = 0; s < numsamples; ++s)
 			{
-				for (int s = 0; s < ns; ++s)
-				{
-					double u = double(i) / double(nx);
-					double v = double(j) / double(ny);
-					col += color(camera.getRay(u, v), scene);
-				}
-
-				col /= ns;
-			}
-			else
-			{
-				double u = double(i) / double(nx);
-				double v = double(j) / double(ny);
-				col = color(camera.getRay(u, v), scene);
+				double u = double(i) / double(width);
+				double v = double(j) / double(height);
+				col += color(camera.getRay(u, v), scene, 0);
 			}
 
-			if (use_gamma_correction)
-				col = vec3(sqrt(col.x()), sqrt(col.y()), sqrt(col.z())); // gamma2 correction (raise to power of 1/2)
-
-			int ir = int(255.99 * col[0]);
-			int ig = int(255.99 * col[1]);
-			int ib = int(255.99 * col[2]);
-
-			image_file << ir << " " << ig << " " << ib << "\n";
+			col /= numsamples;
 		}
+		else
+		{
+			double u = double(i) / double(width);
+			double v = double(j) / double(height);
+			col = color(camera.getRay(u, v), scene, 0);
+		}
+
+		if (use_gamma_correction)
+			col = vec3(sqrt(col.x()), sqrt(col.y()), sqrt(col.z())); // raise to power of 1/X, where I use X = 2
+
+		int ir = int(255.99 * col[0]);
+		int ig = int(255.99 * col[1]);
+		int ib = int(255.99 * col[2]);
+
+		image_file << ir << " " << ig << " " << ib << "\n";
 	}
+
+	delete sphere;
+	delete sphere2;
+	delete sphere3;
+	delete scene;
 
 	image_file.close();
 	return 0;
