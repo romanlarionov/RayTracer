@@ -48,6 +48,7 @@ public:
 	inline vec3 operator/(double s) const { return vec3(_v[0] / s, _v[1] / s, _v[2] / s); } 
 	inline double operator[](int i) const { return _v[i]; }
 	inline double& operator[](int i) { return _v[i]; } 
+	inline vec3 operator-() const { return vec3(-_v[0], -_v[1], -_v[2]); } 
 
 	inline vec3& operator+=(const vec3& o)
 	{
@@ -135,7 +136,7 @@ private:
 	vec3 B;
 };
 
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////// Helper Functions
+////////////////////////////////////////////////////////////////////////////////////////////////////////// Helper Functions
 
 // all assume unit normals
 inline vec3 normalToTextureSpace(vec3 v)
@@ -158,6 +159,38 @@ inline vec3 reflect(const vec3 &v, const vec3 &n)
 	return v - 2.0 * dot(v, n) * n;
 }
 
+bool refract(const vec3 &v, const vec3 &n, double refractive_index_ratio, vec3 &refraction_direction)
+{
+	vec3 unit_v = createUnitVector(v);
+	double NdotL = dot(unit_v, n);
+	double discriminant = 1.0 - refractive_index_ratio * refractive_index_ratio * (1.0 - NdotL * NdotL);
+	if (discriminant > 0.0)
+	{
+		refraction_direction = refractive_index_ratio * (unit_v - n * NdotL) - n * sqrt(discriminant);
+		return true;
+	}
+
+	return false;
+}
+
+vec3 randomVecInUnitSphere()
+{
+	vec3 vec;
+	do
+	{
+		vec = 2.0 * vec3(drand48(), drand48(), drand48()) - 1.0;
+	} while (vec.squaredMag() >= 1.0); // equation for sphere. tests if point is inside sphere volume.
+
+	return vec;
+}
+
+double schlick_fresnel(double cosine, double refractive_index)
+{
+	double f0 = (1.0 - refractive_index) / (1.0 + refractive_index);
+	f0 = f0 * f0;
+	return f0 + (1.0 - f0) * pow(1.0 - cosine, 5);
+}
+
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////// Materials
 
 class Material;
@@ -175,7 +208,7 @@ class Material
 public:
 	virtual ~Material() {}
 	// determines how an incoming light ray interacts with a surface by affecting the scattered outgoing ray.
-	virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered) = 0;
+	virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered) const = 0;
 };
 
 class Lambertian : public Material
@@ -184,7 +217,7 @@ public:
 	Lambertian(const vec3 &albedo) : _albedo(albedo) {}
 	virtual ~Lambertian() {}
 
-	virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered)
+	virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered) const
 	{
 		vec3 target = hit_record.position + hit_record.normal + randomVecInUnitSphere();
 		scattered = Ray(hit_record.position, target - hit_record.position);
@@ -194,38 +227,88 @@ public:
 
 private:
 	vec3 _albedo;
-
-	vec3 randomVecInUnitSphere()
-	{
-		vec3 vec;
-		do
-		{
-			vec = 2.0 * vec3(drand48(), drand48(), drand48()) - 1.0;
-		} while (vec.squaredMag() >= 1.0); // equation for sphere. tests if point is inside sphere volume.
-
-		return vec;
-	}
 };
 
 class Metallic : public Material
 {
 public:
-	Metallic(const vec3 &albedo) : _albedo(albedo) {}
+	Metallic(const vec3 &albedo, double fuzziness)
+	{
+		_albedo = albedo;
+		_fuzziness = (fuzziness <= 1.0) ? fuzziness : 1.0;
+	}
+
 	virtual ~Metallic() {}
 
-	virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered)
+	virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered) const
 	{
 		vec3 reflected = reflect(createUnitVector(incident.direction()), hit_record.normal);
-		scattered = Ray(hit_record.position, reflected);
+		scattered = Ray(hit_record.position, reflected + _fuzziness * randomVecInUnitSphere());
 		attenuation = _albedo;
 		return (dot(scattered.direction(), hit_record.normal) > 0.0); // can't reflect underneath surface
 	}
 
 private:
 	vec3 _albedo;
+	double _fuzziness;
 };
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////// Scene & Entities In Scene
+class Dielectric : public Material
+{
+public:
+	Dielectric(const vec3 &albedo, double refractive_index) : _albedo(albedo), _refractive_index(refractive_index) {}
+	virtual ~Dielectric() {}
+
+	virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered) const
+	{
+		vec3 outward_normal;
+		double refractive_index_ratio;
+		//attenuation = _albedo; // clear glass should be 1.0,1.0,1.0. stained glass should attenuate only certain color channels.
+		attenuation = vec3(1.0, 1.0, 1.0);
+		vec3 refraction_direction;
+
+		vec3 reflection_direction = reflect(createUnitVector(incident.direction()), hit_record.normal);
+		double NdotL = dot(hit_record.normal, incident.direction());
+		double cosine;
+		double reflection_probability = 0.0;
+
+		// 
+		if (NdotL > 0.0)
+		{
+			outward_normal = -hit_record.normal;
+			refractive_index_ratio = _refractive_index;
+			cosine = _refractive_index * NdotL / incident.direction().mag();
+		}
+		else
+		{
+			outward_normal = hit_record.normal;
+			refractive_index_ratio = 1.0 / _refractive_index;
+			cosine = -NdotL / incident.direction().mag();
+		}
+
+		// dielectrics can reflect and refract. reflection is based on fresnel probability.
+		if (refract(incident.direction(), outward_normal, refractive_index_ratio, refraction_direction))
+			reflection_probability = schlick_fresnel(cosine, _refractive_index);
+		else
+		{
+			scattered = Ray(hit_record.position, reflection_direction);
+			reflection_probability = 1.0;
+		}
+
+		if (drand48() < reflection_probability)
+			scattered = Ray(hit_record.position, reflection_direction);
+		else
+			scattered = Ray(hit_record.position, refraction_direction);
+
+		return true;
+	}
+
+private:
+	vec3 _albedo;
+	double _refractive_index;
+};
+
+////////////////////////////////////////////////////////////////////////////////////////////////// Scene & Entities In Scene
 
 class Entity
 {
@@ -384,8 +467,8 @@ int main(int argc, char **argv)
 	// settings
 	bool use_antialiasing = true;
 	bool use_gamma_correction = true;
-	int width = 400;
-	int height = 200;
+	int width = 800;
+	int height = 400;
 	int numsamples = 100;
 
 	// output to ppm file format
@@ -395,12 +478,16 @@ int main(int argc, char **argv)
 	// setup entities and scene
     Sphere *sphere = new Sphere(vec3(1.0, 0.0, -1.0), 0.5, new Lambertian(vec3(0.8, 0.3, 0.3)));
     Sphere *sphere2 = new Sphere(vec3(0.0, -100.5, -1.0), 100, new Lambertian(vec3(0.8, 0.8, 0.0)));
-    Sphere *sphere3 = new Sphere(vec3(-1.0, 0.0, -1.0), 0.5, new Metallic(vec3(0.8, 0.8, 0.8)));
+    Sphere *sphere3 = new Sphere(vec3(-1.0, 0.0, -1.0), 0.5, new Metallic(vec3(0.8, 0.8, 0.8), 0.0));
+    Sphere *sphere4 = new Sphere(vec3(0.0, 0.0, -1.0), 0.5, new Dielectric(vec3(1.0, 1.0, 0.0), 1.5));
+    Sphere *sphere5 = new Sphere(vec3(0.0, 0.0, -1.0), -0.48, new Dielectric(vec3(1.0, 1.0, 0.0), 1.5));
 
 	Scene *scene = new Scene();
 	scene->entities.push_back(sphere);
 	scene->entities.push_back(sphere2);
 	scene->entities.push_back(sphere3);
+	scene->entities.push_back(sphere4);
+	scene->entities.push_back(sphere5);
 
 	Camera camera;
 
@@ -441,6 +528,8 @@ int main(int argc, char **argv)
 	delete sphere;
 	delete sphere2;
 	delete sphere3;
+	delete sphere4;
+	delete sphere5;
 	delete scene;
 
 	image_file.close();
