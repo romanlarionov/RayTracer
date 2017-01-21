@@ -386,6 +386,11 @@ public:
 	vector<Entity *> entities;
 
 	Scene() {}
+	~Scene()
+	{
+		for (auto &e : entities)
+			delete e;
+	}
 
 	bool hit(const Ray &ray, double tmin, double tmax, HitRecord &hit_record) const
 	{
@@ -487,6 +492,33 @@ vec3 color(const Ray &r, Scene *scene, int depth)
 	}
 }
 
+Scene* createRandomScene(int num_entities)
+{
+	Scene *scene = new Scene();
+	scene->entities.push_back(new Sphere(vec3(0.0, -1000.0, 0.0), 1000.0, new Lambertian(vec3(0.5)) ) );
+	for (int a = -11; a < 11; ++a)
+	for (int b = -11; b < 11; ++b)
+	{
+		double curr_material = drand48();
+		vec3 center(a + 0.9 * drand48(), 0.2, b + 0.9 * drand48());
+		if ((center - vec3(4.0, 0.2, 0.0)).mag() > 0.9)
+		{
+			if (curr_material < 0.8)
+				scene->entities.push_back(new Sphere(center, 0.2, new Lambertian(vec3(drand48() * drand48(), drand48() * drand48(), drand48() * drand48()))));
+			else if (curr_material < 0.95)
+				scene->entities.push_back(new Sphere(center, 0.2, new Metallic(0.5 * vec3(1.0 + drand48(), 1.0 + drand48(), drand48()), 0.5 * drand48())));
+			else
+				scene->entities.push_back(new Sphere(center, 0.2, new Dielectric(vec3(1.0), 1.5)));
+		}
+	}
+
+	scene->entities.push_back(new Sphere(vec3(0.0, 1.0, 0.0), 1.0, new Dielectric(vec3(1.0), 1.5)));
+	scene->entities.push_back(new Sphere(vec3(-4.0, 1.0, 0.0), 1.0, new Lambertian(vec3(0.4, 0.2, 0.1))));
+	scene->entities.push_back(new Sphere(vec3(4.0, 1.0, 0.0), 1.0, new Metallic(vec3(0.7, 0.6, 0.5), 0.0)));
+
+	return scene;
+}
+
 int main(int argc, char **argv)
 {
 	// settings
@@ -501,7 +533,7 @@ int main(int argc, char **argv)
 	image_file << "P3\n" << width << " " << height << "\n255\n";
 
 	// setup entities and scene
-    Sphere *sphere = new Sphere(vec3(1.0, 0.0, -1.0), 0.5, new Lambertian(vec3(0.8, 0.3, 0.3)));
+    /*Sphere *sphere = new Sphere(vec3(1.0, 0.0, -1.0), 0.5, new Lambertian(vec3(0.8, 0.3, 0.3)));
     Sphere *sphere2 = new Sphere(vec3(0.0, -100.5, -1.0), 100, new Lambertian(vec3(0.8, 0.8, 0.0)));
     Sphere *sphere3 = new Sphere(vec3(-1.0, 0.0, -1.0), 0.5, new Metallic(vec3(0.8, 0.8, 0.8), 0.0));
     Sphere *sphere4 = new Sphere(vec3(0.0, 0.0, -1.0), 0.5, new Dielectric(vec3(1.0, 1.0, 0.0), 1.5));
@@ -512,7 +544,9 @@ int main(int argc, char **argv)
 	scene->entities.push_back(sphere2);
 	scene->entities.push_back(sphere3);
 	scene->entities.push_back(sphere4);
-	scene->entities.push_back(sphere5);
+	scene->entities.push_back(sphere5);*/
+
+	Scene *scene = createRandomScene(500);
 
 	vec3 camera_center(-2.0, 2.0, 1.0);
 	vec3 look_at(0.0, 0.0, -1.0);
@@ -555,11 +589,11 @@ int main(int argc, char **argv)
 		image_file << ir << " " << ig << " " << ib << "\n";
 	}
 
-	delete sphere;
+	/*delete sphere;
 	delete sphere2;
 	delete sphere3;
 	delete sphere4;
-	delete sphere5;
+	delete sphere5;*/
 	delete scene;
 
 	image_file.close();
