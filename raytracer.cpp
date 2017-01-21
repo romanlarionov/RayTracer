@@ -173,17 +173,6 @@ bool refract(const vec3 &v, const vec3 &n, double refractive_index_ratio, vec3 &
 	return false;
 }
 
-vec3 randomVecInUnitSphere()
-{
-	vec3 vec;
-	do
-	{
-		vec = 2.0 * vec3(drand48(), drand48(), drand48()) - 1.0;
-	} while (vec.squaredMag() >= 1.0); // equation for sphere. tests if point is inside sphere volume.
-
-	return vec;
-}
-
 double schlick_fresnel(double cosine, double refractive_index)
 {
 	double f0 = (1.0 - refractive_index) / (1.0 + refractive_index);
@@ -208,7 +197,19 @@ class Material
 public:
 	virtual ~Material() {}
 	// determines how an incoming light ray interacts with a surface by affecting the scattered outgoing ray.
-	virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered) const = 0;
+	virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered) = 0;
+
+protected:	
+	vec3 sampleUnitSphere()
+	{
+		vec3 vec;
+		do
+		{
+			vec = 2.0 * vec3(drand48(), drand48(), drand48()) - 1.0;
+		} while (vec.squaredMag() >= 1.0); // equation for sphere. tests if point is inside sphere volume.
+
+		return vec;
+	}
 };
 
 class Lambertian : public Material
@@ -217,9 +218,9 @@ public:
 	Lambertian(const vec3 &albedo) : _albedo(albedo) {}
 	virtual ~Lambertian() {}
 
-	virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered) const
+	virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered)
 	{
-		vec3 target = hit_record.position + hit_record.normal + randomVecInUnitSphere();
+		vec3 target = hit_record.position + hit_record.normal + sampleUnitSphere();
 		scattered = Ray(hit_record.position, target - hit_record.position);
 		attenuation = _albedo;
 		return true;
@@ -240,10 +241,10 @@ public:
 
 	virtual ~Metallic() {}
 
-	virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered) const
+	virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered)
 	{
 		vec3 reflected = reflect(createUnitVector(incident.direction()), hit_record.normal);
-		scattered = Ray(hit_record.position, reflected + _fuzziness * randomVecInUnitSphere());
+		scattered = Ray(hit_record.position, reflected + _fuzziness * sampleUnitSphere());
 		attenuation = _albedo;
 		return (dot(scattered.direction(), hit_record.normal) > 0.0); // can't reflect underneath surface
 	}
@@ -259,7 +260,7 @@ public:
 	Dielectric(const vec3 &albedo, double refractive_index) : _albedo(albedo), _refractive_index(refractive_index) {}
 	virtual ~Dielectric() {}
 
-	virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered) const
+	virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered)
 	{
 		vec3 outward_normal;
 		double refractive_index_ratio;
@@ -410,32 +411,56 @@ public:
 class Camera
 {
 public:
-	Camera()
+	Camera(vec3 origin, vec3 look_at, vec3 up, double fov, double aspect, double aperture, double focus_distance)
 	{
-    	_origin = vec3(0.0);
-		_lower_left_corner = vec3(-2.0, -1.0, -1.0);
-		_vertical = vec3(0.0, 2.0, 0.0);
-		_horizontal = vec3(4.0, 0.0, 0.0);
+		_fov = fov;
+		_aspect = aspect;
+		_aperture = aperture;
+		_focus_distance = focus_distance;
+		_origin = origin;
+
+		double theta = fov * M_PI / 180;
+		double half_height = tan(theta / 2.0);
+		double half_width = aspect * half_height;
+
+		_z = createUnitVector(_origin - look_at);
+		_x = createUnitVector(cross(up, _z));
+		_y = cross(_z, _x);
+
+		_lower_left_corner = _origin - focus_distance * (half_width * _x + half_height * _y + _z);
+		_horizontal = 2.0 * half_width * focus_distance * _x;
+		_vertical = 2.0 * half_height * focus_distance * _y;
 	}
 
-	Camera(vec3 origin, vec3 lower_left_corner, vec3 vertical, vec3 horizontal)
+	Ray getRay(double u, double v)
 	{
-    	_origin = origin;
-		_lower_left_corner = lower_left_corner;
-		_vertical = vertical;
-		_horizontal = horizontal;
-	}
-
-	Ray getRay(double u, double v) const
-	{
-		return Ray(_origin, _lower_left_corner + u * _horizontal + v * _vertical);
+		vec3 rd = _aperture * sampleUnitDisk() / 2.0;
+		vec3 offset = _x * rd.x() + _y * rd.y();
+		return Ray(_origin + offset, _lower_left_corner + u * _horizontal + v * _vertical - _origin - offset);
 	}
 
 private:
+	double _fov; // based on vertical angle
+	double _aspect;
+	double _aperture;
+	double _focus_distance;
 	vec3 _origin;
 	vec3 _lower_left_corner;
 	vec3 _vertical;
 	vec3 _horizontal;
+	vec3 _x, _y, _z;
+
+	// simulate aperture by emitting rays from disk around camera origin.
+	vec3 sampleUnitDisk()
+	{
+		vec3 p;
+		do
+		{
+			p = 2.0 * vec3(drand48(), drand48(), 0.0) - vec3(1.0, 1.0, 0.0);
+		} while (dot(p, p) >= 1.0);
+
+		return p;
+	}
 };
 
 // recursively compute the color of a pixel given a starting ray
@@ -489,7 +514,12 @@ int main(int argc, char **argv)
 	scene->entities.push_back(sphere4);
 	scene->entities.push_back(sphere5);
 
-	Camera camera;
+	vec3 camera_center(-2.0, 2.0, 1.0);
+	vec3 look_at(0.0, 0.0, -1.0);
+	double distance_to_focus = (camera_center - look_at).mag();
+	double aperture = 0.2;
+
+	Camera camera(camera_center, look_at, vec3(0.0, 1.0, 0.0), 90.0, width / height, aperture, distance_to_focus);
 
 	// loop over frame and compute color of each pixel
 	for (int j = height - 1; j >= 0; --j)
