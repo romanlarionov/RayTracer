@@ -1,10 +1,12 @@
 
-#include <stdlib.h> // drand48
+#include <iostream>
+#include <cstdlib> // drand48
 #include <limits> // numeric_limits
 #include <vector>
 #include <cmath>
 #include <cstring> // memset
 #include <fstream>
+#include <thread>
 
 using namespace std;
 
@@ -30,6 +32,13 @@ public:
 		_v[0] = x;
 		_v[1] = y;
 		_v[2] = z;
+	}
+
+	vec3(const vec3 &o)
+	{
+		_v[0] = o[0];
+		_v[1] = o[1];
+		_v[2] = o[2];
 	}
 
 	inline double x() const { return _v[0]; }
@@ -519,44 +528,77 @@ Scene* createRandomScene(int num_entities)
 	return scene;
 }
 
+struct Settings
+{
+	bool use_antialiasing;
+	bool use_gamma_correction;
+	int width;
+	int height;
+	int num_aa_samples;
+};
+
+// threads loop through the frame in an interleaving fashion. each computes and stores RGB vec3 to global framebuffer.
+void render(Scene *scene, Camera &camera, Settings &settings, int thread_id, int num_threads, vec3 ***framebuffer)
+{
+	for (int idx = thread_id; idx < settings.width * settings.height; idx += num_threads)
+	{
+		int i = idx % settings.width;
+		int j = idx / settings.width;
+		vec3 col(0.0);
+
+		if (settings.use_antialiasing)
+		{
+			for (int s = 0; s < settings.num_aa_samples; ++s)
+			{
+				double u = double(i + drand48()) / double(settings.width);
+				double v = double(j + drand48()) / double(settings.height);
+				col += color(camera.getRay(u, v), scene, 0);
+			}
+
+			col /= settings.num_aa_samples;
+		}
+		else
+		{
+			double u = double(i) / double(settings.width);
+			double v = double(j) / double(settings.height);
+			col = color(camera.getRay(u, v), scene, 0);
+		}
+
+		if (settings.use_gamma_correction)
+			col = vec3(sqrt(col.x()), sqrt(col.y()), sqrt(col.z())); // raise to power of 1/X, where I use X = 2
+
+		framebuffer[i][j] = new vec3(col);
+
+		cout << double(idx) / double(settings.width * settings.height) << "\n";
+	}
+}
+
 int main(int argc, char **argv)
 {
-	// settings
-	bool use_antialiasing = true;
-	bool use_gamma_correction = true;
-	int width = 800;
-	int height = 400;
-	int numsamples = 100;
+	Settings settings;
+	settings.use_antialiasing = false;
+	settings.use_gamma_correction = true;
+	settings.width = 720;
+	settings.height = 480;
+	settings.num_aa_samples = 100;
 
 	// output to ppm file format
 	ofstream image_file("image.ppm");
-	image_file << "P3\n" << width << " " << height << "\n255\n";
+	image_file << "P3\n" << settings.width << " " << settings.height << "\n255\n";
 
 	// setup entities and scene
-    /*Sphere *sphere = new Sphere(vec3(1.0, 0.0, -1.0), 0.5, new Lambertian(vec3(0.8, 0.3, 0.3)));
-    Sphere *sphere2 = new Sphere(vec3(0.0, -100.5, -1.0), 100, new Lambertian(vec3(0.8, 0.8, 0.0)));
-    Sphere *sphere3 = new Sphere(vec3(-1.0, 0.0, -1.0), 0.5, new Metallic(vec3(0.8, 0.8, 0.8), 0.0));
-    Sphere *sphere4 = new Sphere(vec3(0.0, 0.0, -1.0), 0.5, new Dielectric(vec3(1.0, 1.0, 0.0), 1.5));
-    Sphere *sphere5 = new Sphere(vec3(0.0, 0.0, -1.0), -0.48, new Dielectric(vec3(1.0, 1.0, 0.0), 1.5));
+    Scene *scene = createRandomScene(500);
 
-	Scene *scene = new Scene();
-	scene->entities.push_back(sphere);
-	scene->entities.push_back(sphere2);
-	scene->entities.push_back(sphere3);
-	scene->entities.push_back(sphere4);
-	scene->entities.push_back(sphere5);*/
-
-	Scene *scene = createRandomScene(500);
-
-	vec3 camera_center(-2.0, 2.0, 1.0);
+	vec3 camera_center(5.5, 2.0, 1.0);
 	vec3 look_at(0.0, 0.0, -1.0);
 	double distance_to_focus = (camera_center - look_at).mag();
-	double aperture = 0.2;
+	double aperture = 0.02;
 
-	Camera camera(camera_center, look_at, vec3(0.0, 1.0, 0.0), 90.0, width / height, aperture, distance_to_focus);
+	Camera camera(camera_center, look_at, vec3(0.0, 1.0, 0.0), 90.0,
+				  settings.width / settings.height, aperture, distance_to_focus);
 
 	// loop over frame and compute color of each pixel
-	for (int j = height - 1; j >= 0; --j)
+	/*for (int j = height - 1; j >= 0; --j)
 	for (int i = 0; i < width; ++i)
 	{
 		vec3 col(0.0);
@@ -587,15 +629,43 @@ int main(int argc, char **argv)
 		int ib = int(255.99 * col[2]);
 
 		image_file << ir << " " << ig << " " << ib << "\n";
+	}*/
+
+	//vector<vector<vec3 *> > framebuffer(settings.width);
+	vec3 ***framebuffer = new vec3[settings.width][];
+	for (int i = 0; i < settings.width; ++i)
+		framebuffer[i] = new vec3[settings.height];
+	//for (int i = 0; i < settings.width; ++i)
+	//	framebuffer[i].resize(settings.height);
+
+	// begin execution
+	unsigned int num_threads = std::thread::hardware_concurrency();
+	cout << num_threads;
+	vector<thread> threads;
+	for (int i = 0; i < num_threads - 1; ++i)
+		threads.push_back(thread(render, scene, ref(camera), ref(settings), i, num_threads - 1, framebuffer));
+
+	// wait for threads to finish
+	for (auto &t : threads)
+		t.join();
+
+	// output to file
+	for (int j = settings.height - 1; j >= 0; --j)
+	for (int i = 0; i < settings.width; ++i)
+	{
+		int ir = int(255.99 * framebuffer[i][j]->x());
+		int ig = int(255.99 * framebuffer[i][j]->y());
+		int ib = int(255.99 * framebuffer[i][j]->z());
+
+		image_file << ir << " " << ig << " " << ib << "\n";
+		delete framebuffer[i][j];
 	}
 
-	/*delete sphere;
-	delete sphere2;
-	delete sphere3;
-	delete sphere4;
-	delete sphere5;*/
 	delete scene;
-
 	image_file.close();
 	return 0;
 }
+
+
+
+
