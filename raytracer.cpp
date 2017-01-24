@@ -505,8 +505,10 @@ Scene* createRandomScene(int num_entities)
 {
 	Scene *scene = new Scene();
 	scene->entities.push_back(new Sphere(vec3(0.0, -1000.0, 0.0), 1000.0, new Lambertian(vec3(0.5)) ) );
-	for (int a = -11; a < 11; ++a)
-	for (int b = -11; b < 11; ++b)
+
+	double dim = sqrt(num_entities) / 2.0;
+	for (double a = -dim; a < dim; ++a)
+	for (double b = -dim; b < dim; ++b)
 	{
 		double curr_material = drand48();
 		vec3 center(a + 0.9 * drand48(), 0.2, b + 0.9 * drand48());
@@ -538,7 +540,7 @@ struct Settings
 };
 
 // threads loop through the frame in an interleaving fashion. each computes and stores RGB vec3 to global framebuffer.
-void render(Scene *scene, Camera &camera, Settings &settings, int thread_id, int num_threads, vec3 ***framebuffer)
+void render(Scene *scene, Camera &camera, Settings &settings, int thread_id, int num_threads, vector<vector<vec3> > &framebuffer)
 {
 	for (int idx = thread_id; idx < settings.width * settings.height; idx += num_threads)
 	{
@@ -548,13 +550,22 @@ void render(Scene *scene, Camera &camera, Settings &settings, int thread_id, int
 
 		if (settings.use_antialiasing)
 		{
-			for (int s = 0; s < settings.num_aa_samples; ++s)
+			// apply stochastic sampling approach over evenly spaced sub pixel box regions
+			double delta_u = 1.0 / double(settings.width);
+			double delta_v = 1.0 / double(settings.height);
+			double sub_pixel_dimension = sqrt(settings.num_aa_samples);
+
+			for (double s_x = 0.0; s_x < sub_pixel_dimension; ++s_x)
 			{
-				double u = double(i + drand48()) / double(settings.width);
-				double v = double(j + drand48()) / double(settings.height);
-				col += color(camera.getRay(u, v), scene, 0);
+				for (double s_y = 0.0; s_y < sub_pixel_dimension; ++s_y)
+				{
+					double u = (double(i) / double(settings.width)) + (delta_u * drand48());// + (drand48() / delta_u);
+					double v = (double(j) / double(settings.height)) + (delta_v * drand48());// + (drand48() / delta_v);
+					col += color(camera.getRay(u, v), scene, 0);
+				}
 			}
 
+			// could apply gaussian filter here. but choosing simple box filter (equal weighting)
 			col /= settings.num_aa_samples;
 		}
 		else
@@ -567,27 +578,27 @@ void render(Scene *scene, Camera &camera, Settings &settings, int thread_id, int
 		if (settings.use_gamma_correction)
 			col = vec3(sqrt(col.x()), sqrt(col.y()), sqrt(col.z())); // raise to power of 1/X, where I use X = 2
 
-		framebuffer[i][j] = new vec3(col);
+		framebuffer[i][j] = vec3(col);
 
-		cout << double(idx) / double(settings.width * settings.height) << "\n";
+		cout << double(idx) / double(settings.width * settings.height) * 100 << "%\n";
 	}
 }
 
 int main(int argc, char **argv)
 {
 	Settings settings;
-	settings.use_antialiasing = false;
+	settings.use_antialiasing = true;
 	settings.use_gamma_correction = true;
 	settings.width = 720;
 	settings.height = 480;
-	settings.num_aa_samples = 100;
+	settings.num_aa_samples = 36;
 
 	// output to ppm file format
 	ofstream image_file("image.ppm");
 	image_file << "P3\n" << settings.width << " " << settings.height << "\n255\n";
 
 	// setup entities and scene
-    Scene *scene = createRandomScene(500);
+    Scene *scene = createRandomScene(50);
 
 	vec3 camera_center(5.5, 2.0, 1.0);
 	vec3 look_at(0.0, 0.0, -1.0);
@@ -631,19 +642,19 @@ int main(int argc, char **argv)
 		image_file << ir << " " << ig << " " << ib << "\n";
 	}*/
 
-	//vector<vector<vec3 *> > framebuffer(settings.width);
-	vec3 ***framebuffer = new vec3[settings.width][];
-	for (int i = 0; i < settings.width; ++i)
-		framebuffer[i] = new vec3[settings.height];
+	vector<vector<vec3> > framebuffer(settings.width);
+	//vec3 ***framebuffer = new vec3[settings.width][];
 	//for (int i = 0; i < settings.width; ++i)
-	//	framebuffer[i].resize(settings.height);
+	//	framebuffer[i] = new vec3[settings.height];
+	for (int i = 0; i < settings.width; ++i)
+		framebuffer[i].resize(settings.height);
 
 	// begin execution
 	unsigned int num_threads = std::thread::hardware_concurrency();
 	cout << num_threads;
 	vector<thread> threads;
 	for (int i = 0; i < num_threads - 1; ++i)
-		threads.push_back(thread(render, scene, ref(camera), ref(settings), i, num_threads - 1, framebuffer));
+		threads.push_back(thread(render, scene, ref(camera), ref(settings), i, num_threads - 1, ref(framebuffer)));
 
 	// wait for threads to finish
 	for (auto &t : threads)
@@ -653,12 +664,12 @@ int main(int argc, char **argv)
 	for (int j = settings.height - 1; j >= 0; --j)
 	for (int i = 0; i < settings.width; ++i)
 	{
-		int ir = int(255.99 * framebuffer[i][j]->x());
-		int ig = int(255.99 * framebuffer[i][j]->y());
-		int ib = int(255.99 * framebuffer[i][j]->z());
+		int ir = int(255.99 * framebuffer[i][j].x());
+		int ig = int(255.99 * framebuffer[i][j].y());
+		int ib = int(255.99 * framebuffer[i][j].z());
 
 		image_file << ir << " " << ig << " " << ib << "\n";
-		delete framebuffer[i][j];
+		//delete framebuffer[i][j];
 	}
 
 	delete scene;
