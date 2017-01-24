@@ -1,4 +1,6 @@
 
+#include <algorithm>
+#include <cstring>
 #include <iostream>
 #include <cstdlib> // drand48
 #include <limits> // numeric_limits
@@ -7,6 +9,10 @@
 #include <cstring> // memset
 #include <fstream>
 #include <thread>
+#include <chrono>
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
 
 using namespace std;
 
@@ -146,6 +152,37 @@ private:
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////// Helper Functions
+
+unsigned char* framebufferToArray(vector<vector<vec3> > &framebuffer)
+{
+	int width = (int)framebuffer.size();
+	int height = (int)framebuffer[0].size();
+
+	unsigned char *output = new unsigned char[width * height * 3];
+	unsigned char *output_ptr = output;
+
+	for (int j = height - 1; j >= 0; --j)
+	{
+		unsigned char *temp = new unsigned char[3 * width];
+		unsigned char *temp_ptr = temp;
+
+		for (int i = 0; i < width; ++i)
+		{
+			int rgb[3];
+			rgb[0] = (unsigned char)(255.99 * framebuffer[i][j].x());
+			rgb[1] = (unsigned char)(255.99 * framebuffer[i][j].y());
+			rgb[2] = (unsigned char)(255.99 * framebuffer[i][j].z());
+			copy(rgb, rgb + 3, temp_ptr);
+			temp_ptr += 3;
+		}
+
+		copy(temp, temp + (width * 3), output_ptr);
+		output_ptr += width * 3;
+		delete[] temp;
+	}
+
+	return output;
+}
 
 // all assume unit normals
 inline vec3 normalToTextureSpace(vec3 v)
@@ -593,10 +630,6 @@ int main(int argc, char **argv)
 	settings.height = 480;
 	settings.num_aa_samples = 36;
 
-	// output to ppm file format
-	ofstream image_file("image.ppm");
-	image_file << "P3\n" << settings.width << " " << settings.height << "\n255\n";
-
 	// setup entities and scene
     Scene *scene = createRandomScene(50);
 
@@ -608,75 +641,28 @@ int main(int argc, char **argv)
 	Camera camera(camera_center, look_at, vec3(0.0, 1.0, 0.0), 90.0,
 				  settings.width / settings.height, aperture, distance_to_focus);
 
-	// loop over frame and compute color of each pixel
-	/*for (int j = height - 1; j >= 0; --j)
-	for (int i = 0; i < width; ++i)
-	{
-		vec3 col(0.0);
-
-		if (use_antialiasing)
-		{
-			for (int s = 0; s < numsamples; ++s)
-			{
-				double u = double(i) / double(width);
-				double v = double(j) / double(height);
-				col += color(camera.getRay(u, v), scene, 0);
-			}
-
-			col /= numsamples;
-		}
-		else
-		{
-			double u = double(i) / double(width);
-			double v = double(j) / double(height);
-			col = color(camera.getRay(u, v), scene, 0);
-		}
-
-		if (use_gamma_correction)
-			col = vec3(sqrt(col.x()), sqrt(col.y()), sqrt(col.z())); // raise to power of 1/X, where I use X = 2
-
-		int ir = int(255.99 * col[0]);
-		int ig = int(255.99 * col[1]);
-		int ib = int(255.99 * col[2]);
-
-		image_file << ir << " " << ig << " " << ib << "\n";
-	}*/
-
+	unsigned int num_threads = std::thread::hardware_concurrency() * 2;
+	vector<thread> threads;
 	vector<vector<vec3> > framebuffer(settings.width);
-	//vec3 ***framebuffer = new vec3[settings.width][];
-	//for (int i = 0; i < settings.width; ++i)
-	//	framebuffer[i] = new vec3[settings.height];
 	for (int i = 0; i < settings.width; ++i)
 		framebuffer[i].resize(settings.height);
 
 	// begin execution
-	unsigned int num_threads = std::thread::hardware_concurrency();
-	cout << num_threads;
-	vector<thread> threads;
-	for (int i = 0; i < num_threads - 1; ++i)
-		threads.push_back(thread(render, scene, ref(camera), ref(settings), i, num_threads - 1, ref(framebuffer)));
+	auto start_time = std::chrono::high_resolution_clock::now();
 
-	// wait for threads to finish
+	for (int i = 0; i < num_threads; ++i)
+		threads.emplace_back(thread(render, scene, ref(camera), ref(settings), i, num_threads, ref(framebuffer)));
+
 	for (auto &t : threads)
 		t.join();
 
-	// output to file
-	for (int j = settings.height - 1; j >= 0; --j)
-	for (int i = 0; i < settings.width; ++i)
-	{
-		int ir = int(255.99 * framebuffer[i][j].x());
-		int ig = int(255.99 * framebuffer[i][j].y());
-		int ib = int(255.99 * framebuffer[i][j].z());
+	// end execution
+	auto curr_time = std::chrono::high_resolution_clock::now();
+	float time = std::chrono::duration_cast<std::chrono::milliseconds>(curr_time - start_time).count() / 1000.0f;
+	cout << "\n\n Execution time: " << time << " (seconds)\n";
 
-		image_file << ir << " " << ig << " " << ib << "\n";
-		//delete framebuffer[i][j];
-	}
+	// output to file
+	int success = stbi_write_png("image.png", settings.width, settings.height, 3, framebufferToArray(framebuffer), 3 * settings.width);
 
 	delete scene;
-	image_file.close();
-	return 0;
 }
-
-
-
-

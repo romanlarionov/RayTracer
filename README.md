@@ -2,6 +2,6 @@
 Ray Tracer
 ==========
 
-Simple path tracer written in a single file with no additional links or dependencies.
+Simple path tracer written in a single file. stb_image_write.h is used to output to png format.
 
-![alt text](/image.ppm)
+![alt text](/image.png)
