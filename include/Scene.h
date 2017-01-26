@@ -25,8 +25,6 @@ public:
 
     ~Scene()
     {
-        //for (auto &e : entities)
-        //    delete e;
         delete _bvh;
     }
 

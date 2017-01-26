@@ -98,8 +98,7 @@ public:
     {
         vec3 outward_normal;
         double refractive_index_ratio;
-        //attenuation = _albedo; // clear glass should be 1.0,1.0,1.0. stained glass should attenuate only certain color channels.
-        attenuation = vec3(1.0, 1.0, 0.0);
+        attenuation = _albedo; // clear glass should be 1.0,1.0,1.0. stained glass should attenuate only certain color channels.
         vec3 refraction_direction;
 
         vec3 reflection_direction = reflect(createUnitVector(incident.direction()), hit_record.normal);

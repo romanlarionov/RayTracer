@@ -88,7 +88,7 @@ public:
     virtual ~BVHNode()
     {
         if (_left) delete _left;
-        if (_right) delete _right;
+        if (_right) delete _right; // todo: causes seg fault
     }
 
     virtual bool hit(const Ray &ray, double tmin, double tmax, HitRecord &hit_record) const
