@@ -47,16 +47,6 @@ unsigned char* framebufferToArray(std::vector<std::vector<vec3> > &framebuffer)
     return output;
 }
 
-inline double fastMin(double l, double r)
-{
-    return l < r ? l : r;
-}
-
-inline double fastMax(double l, double r)
-{
-    return l > r ? l : r;
-}
-
 // recursively compute the color of a pixel given a starting ray
 vec3 color(const Ray &r, Scene *scene, int depth)
 {
@@ -83,31 +73,31 @@ vec3 color(const Ray &r, Scene *scene, int depth)
 
 Scene* createRandomScene(int num_entities)
 {
-    Scene *scene = new Scene();
-    scene->entities.push_back(new Sphere(vec3(0.0, -1000.0, 0.0), 1000.0, new Lambertian(vec3(0.5)) ) );
+    std::vector<Entity *> entities;
 
     double dim = sqrt(num_entities) / 2.0;
-    for (double a = -dim; a < dim; ++a)
-    for (double b = -dim; b < dim; ++b)
+    for (int a = 0; a < sqrt(num_entities); ++a)
+    for (int b = 0; b < sqrt(num_entities); ++b)
     {
         double curr_material = drand48();
-        vec3 center(a + 0.9 * drand48(), 0.2, b + 0.9 * drand48());
+        vec3 center(a - dim + 0.9 * drand48(), 0.2, b - dim + 0.9 * drand48());
         if ((center - vec3(4.0, 0.2, 0.0)).mag() > 0.9)
         {
             if (curr_material < 0.8)
-                scene->entities.push_back(new Sphere(center, 0.2, new Lambertian(vec3(drand48() * drand48(), drand48() * drand48(), drand48() * drand48()))));
+                entities.push_back(new Sphere(center, 0.2, new Lambertian(vec3(drand48() * drand48(), drand48() * drand48(), drand48() * drand48()))));
             else if (curr_material < 0.95)
-                scene->entities.push_back(new Sphere(center, 0.2, new Metallic(0.5 * vec3(1.0 + drand48(), 1.0 + drand48(), drand48()), 0.5 * drand48())));
+                entities.push_back(new Sphere(center, 0.2, new Metallic(0.5 * vec3(1.0 + drand48(), 1.0 + drand48(), drand48()), 0.5 * drand48())));
             else
-                scene->entities.push_back(new Sphere(center, 0.2, new Dielectric(vec3(1.0), 1.5)));
+                entities.push_back(new Sphere(center, 0.2, new Dielectric(vec3(1.0), 1.5)));
         }
     }
 
-    scene->entities.push_back(new Sphere(vec3(0.0, 1.0, 0.0), 1.0, new Dielectric(vec3(1.0), 1.5)));
-    scene->entities.push_back(new Sphere(vec3(-4.0, 1.0, 0.0), 1.0, new Lambertian(vec3(0.4, 0.2, 0.1))));
-    scene->entities.push_back(new Sphere(vec3(4.0, 1.0, 0.0), 1.0, new Metallic(vec3(0.7, 0.6, 0.5), 0.0)));
+    entities.push_back(new Sphere(vec3(0.0, -1000.0, 0.0), 1000.0, new Lambertian(vec3(0.5))));
+    entities.push_back(new Sphere(vec3(0.0, 1.0, 0.0), 1.0, new Dielectric(vec3(1.0), 1.5)));
+    entities.push_back(new Sphere(vec3(-4.0, 1.0, 0.0), 1.0, new Lambertian(vec3(0.4, 0.2, 0.1))));
+    entities.push_back(new Sphere(vec3(4.0, 1.0, 0.0), 1.0, new Metallic(vec3(0.7, 0.6, 0.5), 0.0)));
 
-    return scene;
+    return new Scene(entities);
 }
 
 struct Settings
@@ -161,7 +151,7 @@ void render(Scene *scene, Camera &camera, Settings &settings, int thread_id, int
 
         framebuffer[i][j] = vec3(col);
 
-        std::cout << double(idx) / double(settings.width * settings.height) * 100 << "%\n";
+        std::cout << (idx * 100) / (settings.width * settings.height)<< "%\n";
     }
 }
 
@@ -175,7 +165,7 @@ int main(int argc, char **argv)
     settings.num_aa_samples = 36;
 
     // setup entities and scene
-    Scene *scene = createRandomScene(50);
+    Scene *scene = createRandomScene(500);
 
     vec3 camera_center(5.5, 2.0, 1.0);
     vec3 look_at(0.0, 0.0, -1.0);

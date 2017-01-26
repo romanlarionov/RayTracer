@@ -4,7 +4,7 @@
 
 #include <cstdlib>
 
-#include "vec3.hpp"
+#include "vec3.h"
 
 class Camera
 {
