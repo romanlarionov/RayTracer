@@ -1,7 +1,6 @@
 
 #include <algorithm>
 #include <iostream>
-#include <cstdlib> // drand48
 #include <limits> // numeric_limits
 #include <vector>
 #include <cmath>
@@ -12,9 +11,10 @@
 #include "Material.h"
 #include "Scene.h"
 #include "Camera.h"
+#include "Utilities.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
+#include "include\stb_image_write.h"
 
 unsigned char* framebufferToArray(std::vector<std::vector<vec3> > &framebuffer)
 {
@@ -79,14 +79,14 @@ Scene* createRandomScene(int num_entities)
     for (int a = 0; a < sqrt(num_entities); ++a)
     for (int b = 0; b < sqrt(num_entities); ++b)
     {
-        double curr_material = drand48();
-        vec3 center(a - dim + 0.9 * drand48(), 0.2, b - dim + 0.9 * drand48());
+		double curr_material = getUnitRandom();
+        vec3 center(a - dim + 0.9 * getUnitRandom(), 0.2, b - dim + 0.9 * getUnitRandom());
         if ((center - vec3(4.0, 0.2, 0.0)).mag() > 0.9)
         {
             if (curr_material < 0.8)
-                entities.push_back(new Sphere(center, 0.2, new Lambertian(vec3(drand48() * drand48(), drand48() * drand48(), drand48() * drand48()))));
+                entities.push_back(new Sphere(center, 0.2, new Lambertian(vec3(getUnitRandom() * getUnitRandom(), getUnitRandom() * getUnitRandom(), getUnitRandom() * getUnitRandom()))));
             else if (curr_material < 0.95)
-                entities.push_back(new Sphere(center, 0.2, new Metallic(0.5 * vec3(1.0 + drand48(), 1.0 + drand48(), drand48()), 0.5 * drand48())));
+                entities.push_back(new Sphere(center, 0.2, new Metallic(0.5 * vec3(1.0 + getUnitRandom(), 1.0 + getUnitRandom(), getUnitRandom()), 0.5 * getUnitRandom())));
             else
                 entities.push_back(new Sphere(center, 0.2, new Dielectric(vec3(1.0), 1.5)));
         }
@@ -130,8 +130,8 @@ void render(Scene *scene, Camera &camera, Settings &settings, int thread_id, int
                 for (double s_y = 0.0; s_y < sub_pixel_dimension; ++s_y)
                 {
                     // pixel offset + sub-pixel offset + random point in sub-pixel box
-                    double u = (double(i) / double(settings.width)) + (delta_u / sub_pixel_dimension) * (s_x * drand48());
-                    double v = (double(j) / double(settings.height)) + (delta_v / sub_pixel_dimension) * (s_y * drand48());
+                    double u = (double(i) / double(settings.width)) + (delta_u / sub_pixel_dimension) * (s_x * getUnitRandom());
+                    double v = (double(j) / double(settings.height)) + (delta_v / sub_pixel_dimension) * (s_y * getUnitRandom());
                     col += color(camera.getRay(u, v), scene, 0);
                 }
             }
@@ -162,10 +162,10 @@ int main(int argc, char **argv)
     settings.use_gamma_correction = true;
     settings.width = 720;
     settings.height = 480;
-    settings.num_aa_samples = 36;
+    settings.num_aa_samples = 2;
 
     // setup entities and scene
-    Scene *scene = createRandomScene(500);
+    Scene *scene = createRandomScene(5);
 
     vec3 camera_center(5.5, 2.0, 1.0);
     vec3 look_at(0.0, 0.0, -1.0);
@@ -185,7 +185,7 @@ int main(int argc, char **argv)
     // begin execution
     auto start_time = std::chrono::high_resolution_clock::now();
 
-    for (int i = 0; i < num_threads; ++i)
+    for (unsigned int i = 0; i < num_threads; ++i)
         threads.emplace_back(std::thread(render, scene, std::ref(camera),
                              std::ref(settings), i, num_threads, std::ref(framebuffer)));
 

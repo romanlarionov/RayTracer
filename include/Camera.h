@@ -2,9 +2,11 @@
 #ifndef __CAMERA__
 #define __CAMERA__
 
+#include <math.h>
 #include <cstdlib>
 
 #include "vec3.h"
+#include "Utilities.h"
 
 class Camera
 {
@@ -54,7 +56,7 @@ private:
         vec3 p;
         do
         {
-            p = 2.0 * vec3(drand48(), drand48(), 0.0) - vec3(1.0, 1.0, 0.0);
+            p = 2.0 * vec3(getUnitRandom(), getUnitRandom(), 0.0) - vec3(1.0, 1.0, 0.0);
         } while (dot(p, p) >= 1.0);
 
         return p;

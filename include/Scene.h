@@ -18,7 +18,7 @@ public:
     {
         if (!entities.empty())
         {
-            _bvh = new BVHNode(entities.data(), entities.size());
+            _bvh = new BVHNode(entities.data(), (int)entities.size());
             _entities = entities;
         }
     }
@@ -56,7 +56,7 @@ public:
         if (!_entities[0]->bounding_box(temp_box)) return false;
 
         box = temp_box;
-        for (int i = 1; i < _entities.size(); ++i)
+        for (size_t i = 1; i < _entities.size(); ++i)
         {
             if (_entities[0]->bounding_box(temp_box))
                 box = surrounding_box(box, temp_box);

@@ -6,6 +6,7 @@
 
 #include "vec3.h"
 #include "Entity.h"
+#include "Utilities.h"
 
 int box_x_compare(const void *l, const void *r)
 {
@@ -56,7 +57,7 @@ public:
 
     BVHNode(Entity **entities, int n)
     {
-        int axis = int(3 * drand48());
+        int axis = int(3 * getUnitRandom());
 
         if (axis == 0)
             qsort(entities, n, sizeof(Entity *), box_x_compare);
@@ -87,8 +88,16 @@ public:
 
     virtual ~BVHNode()
     {
-        if (_left) delete _left;
-        if (_right) delete _right; // todo: causes seg fault
+		if (_left == _right)
+		{
+			delete _left;
+			_left = _right = nullptr;
+		}
+		else
+		{
+			delete _left; _left = nullptr;
+			delete _right; _right = nullptr;
+		}
     }
 
     virtual bool hit(const Ray &ray, double tmin, double tmax, HitRecord &hit_record) const

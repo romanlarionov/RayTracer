@@ -5,6 +5,7 @@
 #include <cstdlib>
 
 #include "vec3.h"
+#include "Utilities.h"
 
 class Material;
 
@@ -36,7 +37,7 @@ protected:
         vec3 vec;
         do
         {
-            vec = 2.0 * vec3(drand48(), drand48(), drand48()) - 1.0;
+            vec = 2.0 * vec3(getUnitRandom(), getUnitRandom(), getUnitRandom()) - 1.0;
         } while (vec.squaredMag() >= 1.0); // equation for sphere. tests if point is inside sphere volume.
 
         return vec;
@@ -128,7 +129,7 @@ public:
             reflection_probability = 1.0;
         }
 
-        if (drand48() < reflection_probability)
+        if (getUnitRandom() < reflection_probability)
             scattered = Ray(hit_record.position, reflection_direction);
         else
             scattered = Ray(hit_record.position, refraction_direction);
