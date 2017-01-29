@@ -9,4 +9,4 @@ g++ -std=c++11 -O3 -Wall -I include -o raytracer raytracer.cpp && ./raytracer
 ```
 
 
-![alt text](/image.png)
+![alt text](/images/checkerboard.png)

@@ -1,4 +1,5 @@
 
+#include <cstring>
 #include <algorithm>
 #include <iostream>
 #include <limits> // numeric_limits
@@ -6,6 +7,7 @@
 #include <cmath>
 #include <thread>
 #include <chrono>
+#include <mutex>
 
 #include "vec3.h"
 #include "Material.h"
@@ -99,7 +101,7 @@ Scene* createRandomScene(int num_entities)
         }
     }
 
-    entities.push_back(new Sphere(vec3(0.0, -1000.0, 0.0), 1000.0, new Lambertian(new ConstantTexture(vec3(0.5)))));
+    entities.push_back(new Sphere(vec3(0.0, -1000.0, 0.0), 1000.0, new Lambertian(new CheckerTexture(new ConstantTexture(vec3(0.0)), new ConstantTexture(vec3(1.0))) )));
     entities.push_back(new Sphere(vec3(0.0, 1.0, 0.0), 1.0, new Dielectric(new ConstantTexture(vec3(1.0)), 1.5)));
     entities.push_back(new Sphere(vec3(-4.0, 1.0, 0.0), 1.0, new Lambertian(new ConstantTexture(vec3(0.4, 0.2, 0.1)))));
     entities.push_back(new Sphere(vec3(4.0, 1.0, 0.0), 1.0, new Metallic(new ConstantTexture(vec3(0.7, 0.6, 0.5)), 0.0)));
@@ -111,9 +113,11 @@ struct Settings
 {
     bool use_antialiasing;
     bool use_gamma_correction;
+    bool print_output;
     int width;
     int height;
     int num_aa_samples;
+    std::mutex mtx;
 };
 
 // threads loop through the frame in an interleaving fashion. each computes and stores RGB vec3 to global framebuffer.
@@ -158,7 +162,11 @@ void render(Scene *scene, Camera &camera, Settings &settings, int thread_id, int
 
         framebuffer[i][j] = vec3(col);
 
-        std::cout << (idx * 100) / (settings.width * settings.height)<< "%\n";
+        if (settings.print_output)
+        {
+            std::lock_guard<std::mutex> l(settings.mtx);
+            std::cout << "\r" << (idx * 100) / (settings.width * settings.height)<< "%" << std::flush;
+        }
     }
 }
 
@@ -167,9 +175,19 @@ int main(int argc, char **argv)
     Settings settings;
     settings.use_antialiasing = true;
     settings.use_gamma_correction = true;
+    settings.print_output = false;
     settings.width = 720;
     settings.height = 480;
     settings.num_aa_samples = 100;
+
+    // command line input
+    if (argc > 1)
+    {
+        if (strcmp(argv[1], "-p") == 0)
+        {
+            settings.print_output = true;
+        }
+    }
 
     // setup entities and scene
     Scene *scene = createRandomScene(500);
@@ -206,7 +224,7 @@ int main(int argc, char **argv)
 
     // output to file
     unsigned char *output_image = framebufferToArray(framebuffer);
-    if (stbi_write_png("image.png", settings.width, settings.height, 3, output_image, 3 * settings.width) == 0)
+    if (stbi_write_png("images/current.png", settings.width, settings.height, 3, output_image, 3 * settings.width) == 0)
         std::cout << "stb_image failed to write to image.\n";
 
     delete scene;
