@@ -5,6 +5,7 @@
 #include <cstdlib>
 
 #include "vec3.h"
+#include "Texture.h"
 #include "Utilities.h"
 
 class Material;
@@ -48,26 +49,26 @@ protected:
 class Lambertian : public Material
 {
 public:
-    Lambertian(const vec3 &albedo) : _albedo(albedo) {}
+    Lambertian(Texture *albedo) : _albedo(albedo) {}
     virtual ~Lambertian() {}
 
     virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered)
     {
         vec3 target = hit_record.position + hit_record.normal + sampleUnitSphere();
         scattered = Ray(hit_record.position, target - hit_record.position);
-        attenuation = _albedo;
+        attenuation = _albedo->sample(0.0, 0.0, hit_record.position);
         return true;
     }
 
 private:
-    vec3 _albedo;
+    Texture *_albedo;
 };
 
 
 class Metallic : public Material
 {
 public:
-    Metallic(const vec3 &albedo, double fuzziness)
+    Metallic(Texture *albedo, double fuzziness)
     {
         _albedo = albedo;
         _fuzziness = (fuzziness <= 1.0) ? fuzziness : 1.0;
@@ -79,12 +80,12 @@ public:
     {
         vec3 reflected = reflect(createUnitVector(incident.direction()), hit_record.normal);
         scattered = Ray(hit_record.position, reflected + _fuzziness * sampleUnitSphere());
-        attenuation = _albedo;
+        attenuation = _albedo->sample(0.0, 0.0, hit_record.position);
         return (dot(scattered.direction(), hit_record.normal) > 0.0); // can't reflect underneath surface
     }
 
 private:
-    vec3 _albedo;
+    Texture *_albedo;
     double _fuzziness;
 };
 
@@ -92,14 +93,14 @@ private:
 class Dielectric : public Material
 {
 public:
-    Dielectric(const vec3 &albedo, double refractive_index) : _albedo(albedo), _refractive_index(refractive_index) {}
+    Dielectric(Texture *albedo, double refractive_index) : _albedo(albedo), _refractive_index(refractive_index) {}
     virtual ~Dielectric() {}
 
     virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered)
     {
         vec3 outward_normal;
         double refractive_index_ratio;
-        attenuation = _albedo; // clear glass should be 1.0,1.0,1.0. stained glass should attenuate only certain color channels.
+        attenuation = _albedo->sample(0.0, 0.0, hit_record.position); 
         vec3 refraction_direction;
 
         vec3 reflection_direction = reflect(createUnitVector(incident.direction()), hit_record.normal);
@@ -138,7 +139,7 @@ public:
     }
 
 private:
-    vec3 _albedo;
+    Texture *_albedo;
     double _refractive_index;
 };
 

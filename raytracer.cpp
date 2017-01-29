@@ -11,10 +11,11 @@
 #include "Material.h"
 #include "Scene.h"
 #include "Camera.h"
+#include "Texture.h"
 #include "Utilities.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "include\stb_image_write.h"
+#include "stb_image_write.h"
 
 unsigned char* framebufferToArray(std::vector<std::vector<vec3> > &framebuffer)
 {
@@ -84,18 +85,24 @@ Scene* createRandomScene(int num_entities)
         if ((center - vec3(4.0, 0.2, 0.0)).mag() > 0.9)
         {
             if (curr_material < 0.8)
-                entities.push_back(new Sphere(center, 0.2, new Lambertian(vec3(getUnitRandom() * getUnitRandom(), getUnitRandom() * getUnitRandom(), getUnitRandom() * getUnitRandom()))));
+            {
+                ConstantTexture *texture = new ConstantTexture(vec3(getUnitRandom() * getUnitRandom(), getUnitRandom() * getUnitRandom(), getUnitRandom() * getUnitRandom()));
+                entities.push_back(new Sphere(center, 0.2, new Lambertian(texture)));
+            }
             else if (curr_material < 0.95)
-                entities.push_back(new Sphere(center, 0.2, new Metallic(0.5 * vec3(1.0 + getUnitRandom(), 1.0 + getUnitRandom(), getUnitRandom()), 0.5 * getUnitRandom())));
+            {
+                ConstantTexture *texture = new ConstantTexture(0.5 * vec3(1.0 + getUnitRandom(), 1.0 + getUnitRandom(), getUnitRandom()));
+                entities.push_back(new Sphere(center, 0.2, new Metallic(texture, 0.5 * getUnitRandom())));
+            }
             else
-                entities.push_back(new Sphere(center, 0.2, new Dielectric(vec3(1.0), 1.5)));
+                entities.push_back(new Sphere(center, 0.2, new Dielectric(new ConstantTexture(vec3(1.0)), 1.5)));
         }
     }
 
-    entities.push_back(new Sphere(vec3(0.0, -1000.0, 0.0), 1000.0, new Lambertian(vec3(0.5))));
-    entities.push_back(new Sphere(vec3(0.0, 1.0, 0.0), 1.0, new Dielectric(vec3(1.0), 1.5)));
-    entities.push_back(new Sphere(vec3(-4.0, 1.0, 0.0), 1.0, new Lambertian(vec3(0.4, 0.2, 0.1))));
-    entities.push_back(new Sphere(vec3(4.0, 1.0, 0.0), 1.0, new Metallic(vec3(0.7, 0.6, 0.5), 0.0)));
+    entities.push_back(new Sphere(vec3(0.0, -1000.0, 0.0), 1000.0, new Lambertian(new ConstantTexture(vec3(0.5)))));
+    entities.push_back(new Sphere(vec3(0.0, 1.0, 0.0), 1.0, new Dielectric(new ConstantTexture(vec3(1.0)), 1.5)));
+    entities.push_back(new Sphere(vec3(-4.0, 1.0, 0.0), 1.0, new Lambertian(new ConstantTexture(vec3(0.4, 0.2, 0.1)))));
+    entities.push_back(new Sphere(vec3(4.0, 1.0, 0.0), 1.0, new Metallic(new ConstantTexture(vec3(0.7, 0.6, 0.5)), 0.0)));
 
     return new Scene(entities);
 }
@@ -162,12 +169,12 @@ int main(int argc, char **argv)
     settings.use_gamma_correction = true;
     settings.width = 720;
     settings.height = 480;
-    settings.num_aa_samples = 2;
+    settings.num_aa_samples = 100;
 
     // setup entities and scene
-    Scene *scene = createRandomScene(5);
+    Scene *scene = createRandomScene(500);
 
-    vec3 camera_center(5.5, 2.0, 1.0);
+    vec3 camera_center(5.5, 1.0, 3.0);
     vec3 look_at(0.0, 0.0, -1.0);
     double distance_to_focus = (camera_center - look_at).mag();
     double aperture = 0.02;
