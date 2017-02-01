@@ -11,6 +11,7 @@
 
 #include "vec3.h"
 #include "Material.h"
+#include "BVH.h"
 #include "Scene.h"
 #include "Camera.h"
 #include "Texture.h"
@@ -50,30 +51,6 @@ unsigned char* framebufferToArray(std::vector<std::vector<vec3> > &framebuffer)
     return output;
 }
 
-// recursively compute the color of a pixel given a starting ray
-vec3 color(const Ray &r, Scene *scene, int depth)
-{
-    HitRecord hit_record;
-    if (scene->hit(r, 0.001, std::numeric_limits<double>::max(), hit_record))
-    {
-        Ray scattered;
-        vec3 attenuation;
-
-        // limit the call stack. only proceed when successfully scattered.
-        if (depth < 50 && hit_record.material->scatter(r, hit_record, attenuation, scattered))
-            return attenuation * color(scattered, scene, depth + 1);
-        else
-            return vec3(0.0);
-    }
-    else
-    {
-        // color the backdrop (arbitrary)
-        vec3 dir = createUnitVector(r.direction());
-        double t = 0.5 * (dir.y() + 1.0);
-        return lerp(vec3(1.0), vec3(0.5, 0.7, 1.0), t);
-    }
-}
-
 Scene* createRandomScene(int num_entities)
 {
     std::vector<Entity *> entities;
@@ -106,19 +83,60 @@ Scene* createRandomScene(int num_entities)
     entities.push_back(new Sphere(vec3(-4.0, 1.0, 0.0), 1.0, new Lambertian(new ConstantTexture(vec3(0.4, 0.2, 0.1)))));
     entities.push_back(new Sphere(vec3(4.0, 1.0, 0.0), 1.0, new Metallic(new ConstantTexture(vec3(0.7, 0.6, 0.5)), 0.0)));
 
+    return new Scene(new BVHNode(entities.data(), entities.size()));
+}
+
+Scene* createCornellBox()
+{
+    std::vector<Entity *> entities;
+    Material *red   = new Lambertian(new ConstantTexture(vec3(0.65, 0.05, 0.05)));
+    Material *white = new Lambertian(new ConstantTexture(vec3(0.73, 0.73, 0.73)));
+    Material *green = new Lambertian(new ConstantTexture(vec3(0.12, 0.45, 0.15)));
+    Material *light = new DiffuseLight(new ConstantTexture(vec3(15.0)));
+
+    entities.push_back(new yz_Rect(0, 555, 0, 555, 555, vec3(-1.0, 0.0, 0.0), green));
+    entities.push_back(new yz_Rect(0, 555, 0, 555, 0, vec3(1.0, 0.0, 0.0), red));
+    entities.push_back(new xz_Rect(0, 555, 0, 555, 555, vec3(0.0, -1.0, 0.0), white));
+    entities.push_back(new xz_Rect(0, 555, 0, 555, 0, vec3(0.0, 1.0, 0.0), white));
+    entities.push_back(new xy_Rect(0, 555, 0, 555, 555, vec3(0.0, 0.0, -1.0), white));
+    entities.push_back(new xz_Rect(213, 343, 227, 332, 554, vec3(0.0, -1.0, 0.0), light));
+
     return new Scene(entities);
 }
 
 struct Settings
 {
-    bool use_antialiasing;
     bool use_gamma_correction;
     bool print_output;
     int width;
     int height;
     int num_aa_samples;
+    int stack_depth;
     std::mutex mtx;
 };
+
+// recursively compute the color of a pixel given a starting ray
+vec3 color(const Ray &r, Scene *scene, int depth, const int max_depth)
+{
+    HitRecord hit_record;
+    if (scene->hit(r, 0.001, std::numeric_limits<double>::max(), hit_record))
+    {
+        Ray scattered;
+        vec3 attenuation;
+        vec3 emitted = hit_record.material->emitted(hit_record.u, hit_record.v, hit_record.position);
+
+        // limit the call stack. only proceed when successfully scattered.
+        if (depth < max_depth && hit_record.material->scatter(r, hit_record, attenuation, scattered))
+        {
+            vec3 temp = emitted + (attenuation * color(scattered, scene, depth + 1, max_depth));
+            return temp;
+        }
+
+        return emitted;
+    }
+
+    return vec3(0.0);
+}
 
 // threads loop through the frame in an interleaving fashion. each computes and stores RGB vec3 to global framebuffer.
 void render(Scene *scene, Camera &camera, Settings &settings, int thread_id, int num_threads, std::vector<std::vector<vec3> > &framebuffer)
@@ -129,33 +147,24 @@ void render(Scene *scene, Camera &camera, Settings &settings, int thread_id, int
         int j = idx / settings.width;
         vec3 col(0.0);
 
-        if (settings.use_antialiasing)
-        {
-            // apply stochastic sampling approach over evenly spaced sub pixel box regions
-            double delta_u = 1.0 / double(settings.width);
-            double delta_v = 1.0 / double(settings.height);
-            double sub_pixel_dimension = sqrt(settings.num_aa_samples);
+        // apply stochastic sampling approach over evenly spaced sub pixel box regions
+        double delta_u = 1.0 / double(settings.width);
+        double delta_v = 1.0 / double(settings.height);
+        double sub_pixel_dimension = sqrt(settings.num_aa_samples);
 
-            for (double s_x = 0.0; s_x < sub_pixel_dimension; ++s_x)
+        for (double s_x = 0.0; s_x < sub_pixel_dimension; ++s_x)
+        {
+            for (double s_y = 0.0; s_y < sub_pixel_dimension; ++s_y)
             {
-                for (double s_y = 0.0; s_y < sub_pixel_dimension; ++s_y)
-                {
-                    // pixel offset + sub-pixel offset + random point in sub-pixel box
-                    double u = (double(i) / double(settings.width)) + (delta_u / sub_pixel_dimension) * (s_x * getUnitRandom());
-                    double v = (double(j) / double(settings.height)) + (delta_v / sub_pixel_dimension) * (s_y * getUnitRandom());
-                    col += color(camera.getRay(u, v), scene, 0);
-                }
+                // pixel offset + sub-pixel offset + random point in sub-pixel box
+                double u = (double(i) / double(settings.width)) + (delta_u / sub_pixel_dimension) * (s_x * getUnitRandom());
+                double v = (double(j) / double(settings.height)) + (delta_v / sub_pixel_dimension) * (s_y * getUnitRandom());
+                col += color(camera.getRay(u, v), scene, 0, settings.stack_depth);
             }
+        }
 
-            // could apply gaussian filter here. but choosing simple box filter (equal weighting)
-            col /= settings.num_aa_samples;
-        }
-        else
-        {
-            double u = double(i) / double(settings.width);
-            double v = double(j) / double(settings.height);
-            col = color(camera.getRay(u, v), scene, 0);
-        }
+        // could apply gaussian filter here. but choosing simple box filter (equal weighting)
+        col /= settings.num_aa_samples;
 
         if (settings.use_gamma_correction)
             col = vec3(sqrt(col.x()), sqrt(col.y()), sqrt(col.z())); // raise to power of 1/X, where I use X = 2
@@ -173,12 +182,12 @@ void render(Scene *scene, Camera &camera, Settings &settings, int thread_id, int
 int main(int argc, char **argv)
 {
     Settings settings;
-    settings.use_antialiasing = true;
     settings.use_gamma_correction = true;
     settings.print_output = false;
     settings.width = 720;
     settings.height = 480;
-    settings.num_aa_samples = 100;
+    settings.num_aa_samples = 1000;
+    settings.stack_depth = 50;
 
     // command line input
     if (argc > 1)
@@ -190,14 +199,16 @@ int main(int argc, char **argv)
     }
 
     // setup entities and scene
-    Scene *scene = createRandomScene(500);
+    //Scene *scene = createRandomScene(50);
+    Scene *scene = createCornellBox();
 
-    vec3 camera_center(5.5, 1.0, 3.0);
-    vec3 look_at(0.0, 0.0, -1.0);
-    double distance_to_focus = (camera_center - look_at).mag();
-    double aperture = 0.02;
-
-    Camera camera(camera_center, look_at, vec3(0.0, 1.0, 0.0), 90.0,
+    vec3 camera_center(278.0, 278.0, -800.0);
+    vec3 look_at(278.0, 278.0, 0.0);
+    double distance_to_focus = 10.0;
+    double aperture = 0.0;
+    double fov = 40.0;
+    
+    Camera camera(camera_center, look_at, vec3(0.0, 1.0, 0.0), fov,
                   settings.width / settings.height, aperture, distance_to_focus);
 
     unsigned int num_threads = std::thread::hardware_concurrency();

@@ -3,6 +3,7 @@
 #define __AABB__
 
 #include <algorithm>
+#include <cmath>
 
 #include "vec3.h"
 
@@ -52,7 +53,7 @@ private:
     vec3 _max;
 };
 
-AABB surrounding_box(AABB l, AABB r)
+/*AABB surrounding_box(AABB l, AABB r)
 {
     vec3 small(std::min(l.min().x(), r.min().x()),
                std::min(l.min().y(), r.min().y()),
@@ -61,6 +62,16 @@ AABB surrounding_box(AABB l, AABB r)
                std::max(l.max().y(), r.max().y()),
                std::max(l.max().z(), r.max().z()));
     return AABB(small, large);
+}*/
+
+AABB surrounding_box(AABB box0, AABB box1) {
+    vec3 small( fmin(box0.min().x(), box1.min().x()),
+                fmin(box0.min().y(), box1.min().y()),
+                fmin(box0.min().z(), box1.min().z()));
+    vec3 big ( fmax(box0.max().x(), box1.max().x()),
+                fmax(box0.max().y(), box1.max().y()),
+                fmax(box0.max().z(), box1.max().z()));
+    return AABB(small,big);
 }
 
 #endif

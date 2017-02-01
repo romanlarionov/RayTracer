@@ -130,6 +130,7 @@
     <ClInclude Include="include\Material.h" />
     <ClInclude Include="include\Scene.h" />
     <ClInclude Include="include\stb_image_write.h" />
+    <ClInclude Include="include\Texture.h" />
     <ClInclude Include="include\Utilities.h" />
     <ClInclude Include="include\vec3.h" />
   </ItemGroup>

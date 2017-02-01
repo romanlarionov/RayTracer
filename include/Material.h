@@ -13,6 +13,8 @@ class Material;
 struct HitRecord
 {
     double t;
+    double u;
+    double v;
     vec3 position;
     vec3 normal;
     Material *material;
@@ -31,6 +33,11 @@ public:
     virtual ~Material() {}
     // determines how an incoming light ray interacts with a surface by affecting the scattered outgoing ray.
     virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered) = 0;
+
+    virtual vec3 emitted(double u, double v, const vec3 &p) const
+    {
+        return vec3(0.0);
+    }
 
 protected:  
     vec3 sampleUnitSphere()
@@ -141,6 +148,32 @@ public:
 private:
     Texture *_albedo;
     double _refractive_index;
+};
+
+class DiffuseLight : public Material
+{
+public:
+    DiffuseLight(Texture *emitted) :
+        _emitted(emitted)
+    {
+    }
+
+    ~DiffuseLight()
+    {
+    }
+
+    virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered)
+    {
+        return false;
+    }
+
+    virtual vec3 emitted(double u, double v, const vec3 &p) const
+    {
+        return _emitted->sample(u, v, p);
+    }
+
+private:
+    Texture *_emitted;
 };
 
 #endif
