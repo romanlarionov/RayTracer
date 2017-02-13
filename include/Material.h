@@ -78,7 +78,7 @@ public:
     Metallic(Texture *albedo, double fuzziness)
     {
         _albedo = albedo;
-        _fuzziness = (fuzziness <= 1.0) ? fuzziness : 1.0;
+        _fuzziness = (fuzziness < 1.0) ? fuzziness : 1.0;
     }
 
     virtual ~Metallic() {}

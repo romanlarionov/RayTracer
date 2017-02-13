@@ -14,7 +14,6 @@ public:
     virtual bool bounding_box(AABB &box) const = 0;
 };
 
-
 void getSphereUV(const vec3 &p, double &u, double &v)
 {
     double phi = atan2(p.z(), p.x());
@@ -22,6 +21,63 @@ void getSphereUV(const vec3 &p, double &u, double &v)
     u = 1 - (phi + M_PI) / (2 * M_PI);
     v = (theta + M_PI/2) / M_PI;
 }
+
+class EntityList : public Entity
+{
+public:
+    EntityList() {}
+    
+    EntityList(std::vector<Entity *> entities) : 
+        _entities(entities)
+    {
+    }
+
+    virtual ~EntityList()
+    {
+        for (auto &e : _entities)
+            delete e;
+    }
+
+    virtual bool hit(const Ray &ray, double tmin, double tmax, HitRecord &hit_record) const
+    {
+        HitRecord temp_record;
+        bool hit_anything = false;
+        double closest = tmax;
+
+        for (size_t i = 0; i < _entities.size(); ++i)
+        {
+            if (_entities[i]->hit(ray, tmin, closest, temp_record))
+            {
+                hit_anything = true;
+                closest = temp_record.t;
+                hit_record = temp_record;
+            }
+        }
+        return hit_anything;
+    }
+
+    virtual bool bounding_box(AABB &box) const
+    {
+        if (_entities.empty()) return false;
+
+        AABB temp_box;
+        if (!_entities[0]->bounding_box(temp_box)) return false;
+
+        box = temp_box;
+        for (int i = 1; i < _entities.size(); ++i)
+        {
+            if (_entities[0]->bounding_box(temp_box))
+                box = surrounding_box(box, temp_box);
+            else
+                return false;
+        }
+
+        return true;
+    }
+
+private:
+    std::vector<Entity *> _entities;
+};
 
 class Sphere : public Entity
 {
@@ -37,7 +93,6 @@ public:
 
     virtual ~Sphere()
     {
-        if (_material) delete _material;
     }
 
     // geometric equation for sphere: (x - cx)^2 + (y - cy)^2 + (z - cz)^2 = R^2
@@ -107,44 +162,13 @@ public:
         _material = material;
     }
 
-    /*Rect(vec3 bottom_left, vec3 top_right, vec3 normal, Material *material) :
-        _bottom_left(bottom_left),
-        _top_right(top_right),
-        _normal(normal.normalize()),
-        _material(material)
-    {
-    }*/
-
     virtual ~xy_Rect() {}
-
-    // https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-plane-and-ray-disk-intersection
-    /*virtual bool hit(const Ray &ray, double tmin, double tmax, HitRecord &hit_record)
-    {
-        double VdotN = dot(createUnitVector(ray.direction()), _normal);
-        if (VdotN < 0.000001) return false;
-
-        double t = dot(_origin - ray.origin(), _normal) / VdotN;
-        vec3 hit_point = ray.pointAtParameter(t);
-
-        if (t < 0.0 || hit_point.x() < bottom_left.x()) ||
-            hit_point.x() > _top_right.x() ||
-            hit_point.y() < _bottom_left.y() ||
-            hit_point.y() > _top_right.y() ||
-            )
-            return false;
-
-        hit_record.t = t;
-        hit_record.position = ray.pointAtParameter(hit_record.t);
-        hit_record.normal = _normal;
-        hit_record.material = _material;
-        hit_record.u = (x - x0) / (x1 - x0);
-        hit_record.v = (y - y0) / (y1 - y0);
-        return true;
-    }*/
 
     virtual bool hit(const Ray &ray, double tmin, double tmax, HitRecord &hit_record) const
     {
         double t = (_k - ray.origin().z()) / ray.direction().z();
+        if (t < tmin || t > tmax) return false;
+
         double x = ray.origin().x() + t * ray.direction().x();
         double y = ray.origin().y() + t * ray.direction().y();
 
@@ -167,13 +191,9 @@ public:
 
 private:
     double _x0, _x1, _y0, _y1, _k;
-    //double _width, _height;
-    //vec3 _bottom_left;
-    //vec3 _top_right;
     vec3 _normal;
     Material *_material;
 };
-
 
 class xz_Rect : public Entity
 {
@@ -194,13 +214,15 @@ public:
     virtual bool hit(const Ray &ray, double tmin, double tmax, HitRecord &hit_record) const
     {
         double t = (_k - ray.origin().y()) / ray.direction().y();
+        if (t < tmin || t > tmax) return false;
+
         double x = ray.origin().x() + t * ray.direction().x();
         double z = ray.origin().z() + t * ray.direction().z();
 
         if (x < _x0 || x > _x1 || z < _z0 || z > _z1) return false;
 
         hit_record.t = t;
-        hit_record.position = ray.pointAtParameter(hit_record.t);
+        hit_record.position = ray.pointAtParameter(t);
         hit_record.normal = _normal;
         hit_record.material = _material;
         hit_record.u = (x - _x0) / (_x1 - _x0);
@@ -241,6 +263,8 @@ public:
     virtual bool hit(const Ray &ray, double tmin, double tmax, HitRecord &hit_record) const
     {
         double t = (_k - ray.origin().x()) / ray.direction().x();
+        if (t < tmin || t > tmax) return false;
+
         double y = (ray.origin().y()) + t * ray.direction().y();
         double z = ray.origin().z() + t * ray.direction().z();
 
@@ -265,6 +289,44 @@ private:
     double _y0, _y1, _z0, _z1, _k;
     vec3 _normal;
     Material *_material;
+};
+
+class AxisAlignedBox : public Entity
+{
+public:
+    AxisAlignedBox(vec3 p0, vec3 p1, Material *material) :
+        _p0(p0),
+        _p1(p1)
+    {
+        std::vector<Entity *> entities;
+        entities.emplace_back(new xy_Rect(p0.x(), p1.x(), p0.y(), p1.y(), p1.z(), vec3(0.0, 0.0, 1.0), material));
+        entities.emplace_back(new xy_Rect(p0.x(), p1.x(), p0.y(), p1.y(), p0.z(), vec3(0.0, 0.0, -1.0), material));
+        entities.emplace_back(new xz_Rect(p0.x(), p1.x(), p0.z(), p1.z(), p1.y(), vec3(0.0, 1.0, 0.0), material));
+        entities.emplace_back(new xz_Rect(p0.x(), p1.x(), p0.z(), p1.z(), p0.y(), vec3(0.0, -1.0, 0.0), material));
+        entities.emplace_back(new yz_Rect(p0.y(), p1.y(), p0.z(), p1.z(), p1.x(), vec3(1.0, 0.0, 0.0), material));
+        entities.emplace_back(new yz_Rect(p0.y(), p1.y(), p0.z(), p1.z(), p0.x(), vec3(-1.0, 0.0, 0.0), material));
+        _box_sides = new EntityList(entities);
+    }
+
+    ~AxisAlignedBox()
+    {
+        delete _box_sides;
+    }
+
+    virtual bool hit(const Ray &ray, double tmin, double tmax, HitRecord &hit_record) const
+    {
+        return _box_sides->hit(ray, tmin, tmax, hit_record);
+    }
+
+    virtual bool bounding_box(AABB &box) const
+    {
+        box = AABB(_p0, _p1);
+        return true;
+    }
+
+private:
+    vec3 _p0, _p1;
+    EntityList *_box_sides;
 };
 
 #endif

@@ -33,7 +33,7 @@ unsigned char* framebufferToArray(std::vector<std::vector<vec3> > &framebuffer)
         unsigned char *temp = new unsigned char[3 * width];
         unsigned char *temp_ptr = temp;
 
-        for (int i = 0; i < width; ++i)
+        for (int i = width - 1; i > 0; --i)
         {
             int rgb[3];
             rgb[0] = (unsigned char)(255.99 * framebuffer[i][j].x());
@@ -78,6 +78,9 @@ Scene* createRandomScene(int num_entities)
         }
     }
 
+    // Light
+    entities.push_back(new Sphere(vec3(0.0, 1000.0, 0.0), 1000.0, new DiffuseLight(new ConstantTexture(vec3(0.5)))));
+
     entities.push_back(new Sphere(vec3(0.0, -1000.0, 0.0), 1000.0, new Lambertian(new CheckerTexture(new ConstantTexture(vec3(0.0)), new ConstantTexture(vec3(1.0))) )));
     entities.push_back(new Sphere(vec3(0.0, 1.0, 0.0), 1.0, new Dielectric(new ConstantTexture(vec3(1.0)), 1.5)));
     entities.push_back(new Sphere(vec3(-4.0, 1.0, 0.0), 1.0, new Lambertian(new ConstantTexture(vec3(0.4, 0.2, 0.1)))));
@@ -94,14 +97,19 @@ Scene* createCornellBox()
     Material *green = new Lambertian(new ConstantTexture(vec3(0.12, 0.45, 0.15)));
     Material *light = new DiffuseLight(new ConstantTexture(vec3(15.0)));
 
-    entities.push_back(new yz_Rect(0, 555, 0, 555, 555, vec3(-1.0, 0.0, 0.0), green));
-    entities.push_back(new yz_Rect(0, 555, 0, 555, 0, vec3(1.0, 0.0, 0.0), red));
-    entities.push_back(new xz_Rect(0, 555, 0, 555, 555, vec3(0.0, -1.0, 0.0), white));
-    entities.push_back(new xz_Rect(0, 555, 0, 555, 0, vec3(0.0, 1.0, 0.0), white));
-    entities.push_back(new xy_Rect(0, 555, 0, 555, 555, vec3(0.0, 0.0, -1.0), white));
-    entities.push_back(new xz_Rect(213, 343, 227, 332, 554, vec3(0.0, -1.0, 0.0), light));
+    // Walls
+    entities.emplace_back(new yz_Rect(0, 10, 0, 10, 10, vec3(-1.0, 0.0, 0.0), green));
+    entities.emplace_back(new yz_Rect(0, 10, 0, 10,  0, vec3(1.0, 0.0, 0.0), red));
+    entities.emplace_back(new xz_Rect(0, 10, 0, 10, 10, vec3(0.0, -1.0, 0.0), white));
+    entities.emplace_back(new xz_Rect(0, 10, 0, 10,  0, vec3(0.0, 1.0, 0.0), white));
+    entities.emplace_back(new xy_Rect(0, 10, 0, 10, 10, vec3(0.0, 0.0, -1.0), white));
+    entities.emplace_back(new xz_Rect(4, 6, 4, 6, 9.9, vec3(0.0, -1.0, 0.0), light));
 
-    return new Scene(entities);
+    // Boxes
+    entities.emplace_back(new AxisAlignedBox(vec3(4.82, 0, 1.2), vec3(7.82, 3.0, 4.18), white));
+    entities.emplace_back(new AxisAlignedBox(vec3(2.36, 0, 5.36), vec3(5.36, 6.0, 8.36), white));
+
+    return new Scene(new EntityList(entities));
 }
 
 struct Settings
@@ -127,10 +135,7 @@ vec3 color(const Ray &r, Scene *scene, int depth, const int max_depth)
 
         // limit the call stack. only proceed when successfully scattered.
         if (depth < max_depth && hit_record.material->scatter(r, hit_record, attenuation, scattered))
-        {
-            vec3 temp = emitted + (attenuation * color(scattered, scene, depth + 1, max_depth));
-            return temp;
-        }
+            return emitted + attenuation * color(scattered, scene, depth + 1, max_depth);
 
         return emitted;
     }
@@ -147,7 +152,7 @@ void render(Scene *scene, Camera &camera, Settings &settings, int thread_id, int
         int j = idx / settings.width;
         vec3 col(0.0);
 
-        // apply stochastic sampling approach over evenly spaced sub pixel box regions
+        // apply jittered sampling approach over evenly spaced sub pixel box regions
         double delta_u = 1.0 / double(settings.width);
         double delta_v = 1.0 / double(settings.height);
         double sub_pixel_dimension = sqrt(settings.num_aa_samples);
@@ -184,10 +189,10 @@ int main(int argc, char **argv)
     Settings settings;
     settings.use_gamma_correction = true;
     settings.print_output = false;
-    settings.width = 720;
-    settings.height = 480;
+    settings.width = 256;
+    settings.height = 256;
     settings.num_aa_samples = 1000;
-    settings.stack_depth = 50;
+    settings.stack_depth = 100;
 
     // command line input
     if (argc > 1)
@@ -199,14 +204,14 @@ int main(int argc, char **argv)
     }
 
     // setup entities and scene
-    //Scene *scene = createRandomScene(50);
+    //Scene *scene = createRandomScene(0);
     Scene *scene = createCornellBox();
 
-    vec3 camera_center(278.0, 278.0, -800.0);
-    vec3 look_at(278.0, 278.0, 0.0);
-    double distance_to_focus = 10.0;
+    vec3 camera_center(5.0, 5.0, -10.0);
+    vec3 look_at(5.0, 5.0, 0.0);
+    double distance_to_focus = (look_at - camera_center).mag();
     double aperture = 0.0;
-    double fov = 40.0;
+    double fov = 50.0;
     
     Camera camera(camera_center, look_at, vec3(0.0, 1.0, 0.0), fov,
                   settings.width / settings.height, aperture, distance_to_focus);

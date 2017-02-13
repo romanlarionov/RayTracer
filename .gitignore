@@ -1,6 +1,9 @@
-run.sh
+
+.vscode
+build.sh
 raytracer
 *.dSYM
+.DS_Store
 
 # Visual Studio Stuff
 
