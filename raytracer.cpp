@@ -2,6 +2,7 @@
 #include <cstring>
 #include <algorithm>
 #include <iostream>
+#include <fstream>
 #include <limits> // numeric_limits
 #include <vector>
 #include <cmath>
@@ -22,8 +23,8 @@
 
 unsigned char* framebufferToArray(std::vector<std::vector<vec3> > &framebuffer)
 {
-    int width = (int)framebuffer.size();
-    int height = (int)framebuffer[0].size();
+    int width = static_cast<int>(framebuffer.size());
+    int height = static_cast<int>(framebuffer[0].size());
 
     unsigned char *output = new unsigned char[width * height * 3];
     unsigned char *output_ptr = output;
@@ -86,7 +87,7 @@ Scene* createRandomScene(int num_entities)
     entities.push_back(new Sphere(vec3(-4.0, 1.0, 0.0), 1.0, new Lambertian(new ConstantTexture(vec3(0.4, 0.2, 0.1)))));
     entities.push_back(new Sphere(vec3(4.0, 1.0, 0.0), 1.0, new Metallic(new ConstantTexture(vec3(0.7, 0.6, 0.5)), 0.0)));
 
-    return new Scene(new BVHNode(entities.data(), entities.size()));
+    return new Scene(new BVHNode(entities.data(), static_cast<int>(entities.size())));
 }
 
 Scene* createCornellBox()
@@ -103,11 +104,12 @@ Scene* createCornellBox()
     entities.emplace_back(new xz_Rect(0, 10, 0, 10, 10, vec3(0.0, -1.0, 0.0), white));
     entities.emplace_back(new xz_Rect(0, 10, 0, 10,  0, vec3(0.0, 1.0, 0.0), white));
     entities.emplace_back(new xy_Rect(0, 10, 0, 10, 10, vec3(0.0, 0.0, -1.0), white));
-    entities.emplace_back(new xz_Rect(4, 6, 4, 6, 9.9, vec3(0.0, -1.0, 0.0), light));
+    entities.emplace_back(new xz_Rect(4, 6, 4, 6, 9.9999, vec3(0.0, -1.0, 0.0), light));
 
-    // Boxes
+    // Objects
     entities.emplace_back(new AxisAlignedBox(vec3(4.82, 0, 1.2), vec3(7.82, 3.0, 4.18), white));
     entities.emplace_back(new AxisAlignedBox(vec3(2.36, 0, 5.36), vec3(5.36, 6.0, 8.36), white));
+    entities.push_back(new Sphere(vec3(2.0, 1.0001, 1.5), 1.0, new Dielectric(new ConstantTexture(vec3(1.0, 1.0, 1.0)), 1.5)));
 
     return new Scene(new EntityList(entities));
 }
@@ -164,7 +166,10 @@ void render(Scene *scene, Camera &camera, Settings &settings, int thread_id, int
                 // pixel offset + sub-pixel offset + random point in sub-pixel box
                 double u = (double(i) / double(settings.width)) + (delta_u / sub_pixel_dimension) * (s_x * getUnitRandom());
                 double v = (double(j) / double(settings.height)) + (delta_v / sub_pixel_dimension) * (s_y * getUnitRandom());
-                col += color(camera.getRay(u, v), scene, 0, settings.stack_depth);
+                vec3 temp_color = color(camera.getRay(u, v), scene, 0, settings.stack_depth);
+                if (!(temp_color[0] == temp_color[0]) || !(temp_color[1] == temp_color[1]) || !(temp_color[2] == temp_color[2]))
+                    temp_color = vec3(0.0);
+                col += temp_color;
             }
         }
 
@@ -174,7 +179,12 @@ void render(Scene *scene, Camera &camera, Settings &settings, int thread_id, int
         if (settings.use_gamma_correction)
             col = vec3(sqrt(col.x()), sqrt(col.y()), sqrt(col.z())); // raise to power of 1/X, where I use X = 2
 
-        framebuffer[i][j] = vec3(col);
+        // todo: need to implement high dynamic range for this to become unnecessary.
+        if (col.x() > 1.0) col[0] = 1.0;
+        if (col.y() > 1.0) col[1] = 1.0;
+        if (col.z() > 1.0) col[2] = 1.0;
+
+        framebuffer[i][j] = col;
 
         if (settings.print_output)
         {
@@ -189,9 +199,9 @@ int main(int argc, char **argv)
     Settings settings;
     settings.use_gamma_correction = true;
     settings.print_output = false;
-    settings.width = 256;
-    settings.height = 256;
-    settings.num_aa_samples = 1000;
+    settings.width = 720;
+    settings.height = 720;
+    settings.num_aa_samples = 2025;
     settings.stack_depth = 100;
 
     // command line input
@@ -235,8 +245,16 @@ int main(int argc, char **argv)
 
     // end execution
     auto curr_time = std::chrono::high_resolution_clock::now();
-    float time = std::chrono::duration_cast<std::chrono::milliseconds>(curr_time - start_time).count() / 1000.0f;
-    std::cout << "\n\n Execution time: " << time << " (seconds)\n\n";
+    float time = std::chrono::duration_cast<std::chrono::seconds>(curr_time - start_time).count();
+
+    int seconds = (int)time % 60;
+    int minutes = (int)time / 60;
+    int hours   = hours / 60;
+    std::ofstream output("images/render_info.txt");
+    output << "Execution time: " << hours << "h, " << minutes << "m, " << seconds << "s\n";
+    output << "Samples per pixel: " << settings.num_aa_samples << "\n";
+    output << "Used gamma correction: " << settings.use_gamma_correction << "\n";
+    output.close();
 
     // output to file
     unsigned char *output_image = framebufferToArray(framebuffer);

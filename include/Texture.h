@@ -34,7 +34,7 @@ public:
 	{
 	}
 
-	~CheckerTexture() {}
+	virtual ~CheckerTexture() {}
 
 	virtual vec3 sample(double u, double v, const vec3 &p) const
 	{
