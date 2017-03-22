@@ -3,6 +3,7 @@
 #define __MATERIAL__
 
 #include <cstdlib>
+#include <algorithm>
 
 #include "vec3.h"
 #include "Texture.h"
@@ -32,7 +33,12 @@ class Material
 public:
     virtual ~Material() {}
     // determines how an incoming light ray interacts with a surface by affecting the scattered outgoing ray.
-    virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered) = 0;
+    virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, double &pdf, Ray &scattered) = 0;
+
+    virtual double scatteredPdf(const Ray &incident, HitRecord &hit_record, const Ray &scattered) const
+    {
+        return 0.0;
+    }
 
     virtual vec3 emitted(double u, double v, const vec3 &p) const
     {
@@ -59,12 +65,19 @@ public:
     Lambertian(Texture *albedo) : _albedo(albedo) {}
     virtual ~Lambertian() {}
 
-    virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered)
+    virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, double &pdf, Ray &scattered)
     {
         vec3 target = hit_record.position + hit_record.normal + sampleUnitSphere();
         scattered = Ray(hit_record.position, target - hit_record.position);
-        attenuation = _albedo->sample(0.0, 0.0, hit_record.position);
+        attenuation = _albedo->sample(hit_record.u, hit_record.v, hit_record.position);
+        pdf = dot(hit_record.normal, scattered.direction()) / M_PI;
         return true;
+    }
+
+    // clamped cosine lobe distribution
+    virtual double scatteredPdf(const Ray &incident, HitRecord &hit_record, const Ray &scattered) const
+    {
+        return std::max(dot(hit_record.normal, createUnitVector(scattered.direction())), 0.0) / M_PI;
     }
 
 private:
@@ -83,7 +96,7 @@ public:
 
     virtual ~Metallic() {}
 
-    virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered)
+    virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, double &pdf, Ray &scattered)
     {
         vec3 reflected = reflect(createUnitVector(incident.direction()), hit_record.normal);
         scattered = Ray(hit_record.position, reflected + _fuzziness * sampleUnitSphere());
@@ -97,7 +110,7 @@ private:
 };
 
 
-class Dielectric : public Material
+/*class Dielectric : public Material
 {
 public:
     Dielectric(Texture *albedo, double refractive_index) : _albedo(albedo), _refractive_index(refractive_index) {}
@@ -148,7 +161,7 @@ public:
 private:
     Texture *_albedo;
     double _refractive_index;
-};
+};*/
 
 class DiffuseLight : public Material
 {
@@ -162,7 +175,7 @@ public:
     {
     }
 
-    virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, Ray &scattered)
+    virtual bool scatter(const Ray &incident, HitRecord &hit_record, vec3 &attenuation, double &pdf, Ray &scattered)
     {
         return false;
     }

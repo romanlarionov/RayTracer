@@ -52,7 +52,7 @@ unsigned char* framebufferToArray(std::vector<std::vector<vec3> > &framebuffer)
     return output;
 }
 
-Scene* createRandomScene(int num_entities)
+/*Scene* createRandomScene(int num_entities)
 {
     std::vector<Entity *> entities;
 
@@ -88,7 +88,7 @@ Scene* createRandomScene(int num_entities)
     entities.push_back(new Sphere(vec3(4.0, 1.0, 0.0), 1.0, new Metallic(new ConstantTexture(vec3(0.7, 0.6, 0.5)), 0.0)));
 
     return new Scene(new BVHNode(entities.data(), static_cast<int>(entities.size())));
-}
+}*/
 
 Scene* createCornellBox()
 {
@@ -109,7 +109,7 @@ Scene* createCornellBox()
     // Objects
     entities.emplace_back(new AxisAlignedBox(vec3(4.82, 0, 1.2), vec3(7.82, 3.0, 4.18), white));
     entities.emplace_back(new AxisAlignedBox(vec3(2.36, 0, 5.36), vec3(5.36, 6.0, 8.36), white));
-    entities.push_back(new Sphere(vec3(2.0, 1.0001, 1.5), 1.0, new Dielectric(new ConstantTexture(vec3(1.0, 1.0, 1.0)), 1.5)));
+    //entities.push_back(new Sphere(vec3(2.0, 1.0001, 1.5), 1.0, new Dielectric(new ConstantTexture(vec3(1.0, 1.0, 1.0)), 1.5)));
 
     return new Scene(new EntityList(entities));
 }
@@ -134,10 +134,11 @@ vec3 color(const Ray &r, Scene *scene, int depth, const int max_depth)
         Ray scattered;
         vec3 attenuation;
         vec3 emitted = hit_record.material->emitted(hit_record.u, hit_record.v, hit_record.position);
+        double pdf;
 
         // limit the call stack. only proceed when successfully scattered.
-        if (depth < max_depth && hit_record.material->scatter(r, hit_record, attenuation, scattered))
-            return emitted + attenuation * color(scattered, scene, depth + 1, max_depth);
+        if (depth < max_depth && hit_record.material->scatter(r, hit_record, attenuation, pdf, scattered))
+            return emitted + attenuation * hit_record.material->scatteredPdf(r, hit_record, scattered) * color(scattered, scene, depth + 1, max_depth) / pdf;
 
         return emitted;
     }
@@ -199,9 +200,9 @@ int main(int argc, char **argv)
     Settings settings;
     settings.use_gamma_correction = true;
     settings.print_output = false;
-    settings.width = 720;
-    settings.height = 720;
-    settings.num_aa_samples = 2025;
+    settings.width = 256;
+    settings.height = 256;
+    settings.num_aa_samples = 300;
     settings.stack_depth = 100;
 
     // command line input
@@ -245,11 +246,11 @@ int main(int argc, char **argv)
 
     // end execution
     auto curr_time = std::chrono::high_resolution_clock::now();
-    float time = std::chrono::duration_cast<std::chrono::seconds>(curr_time - start_time).count();
+    float time = std::chrono::duration_cast<std::chrono::milliseconds>(curr_time - start_time).count() / 1000.0;
 
-    int seconds = (int)time % 60;
-    int minutes = (int)time / 60;
-    int hours   = hours / 60;
+    int seconds = static_cast<int>(time) % 60;
+    int minutes = static_cast<int>(time) / 60;
+    int hours   = minutes / 60;
     std::ofstream output("images/render_info.txt");
     output << "Execution time: " << hours << "h, " << minutes << "m, " << seconds << "s\n";
     output << "Samples per pixel: " << settings.num_aa_samples << "\n";
